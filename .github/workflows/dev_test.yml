@@ -1,0 +1,23 @@
+name: "Test Dev Environment"
+# Checks that the dev environment (uv sync --group dev) can be set up.
+# This might not work, if different linting/testing groups refer to different versions of the same lib (e.g. typing-extensions).
+# Different versions of the same package might work for isolated specific groups (only linting, only testing...) but the dev group inherits from all of them.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Create a Dev Environment
+        run: uv sync --group dev

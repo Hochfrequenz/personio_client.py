@@ -1,0 +1,23 @@
+name: "Coverage"
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.14"
+      - name: Install Dependencies
+        run: uv sync --group coverage
+      - name: Run Tests and Record Coverage
+        working-directory: unittests
+        run: |
+          uv run coverage run -m pytest --basetemp=.tmp
+          uv run coverage html --omit .venv/*,unittests/*
+          uv run coverage report --fail-under 80 --omit .venv/*,unittests/*
