@@ -70,7 +70,7 @@ def download_specs() -> None:
         with urllib.request.urlopen(request, timeout=60) as response:
             spec = json.load(response)
         path = SPEC_DIR / f"{name}.json"
-        path.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
         print(f"Downloaded {path.relative_to(REPO_ROOT)}")
 
 
