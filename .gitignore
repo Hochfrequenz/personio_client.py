@@ -133,4 +133,7 @@ dmypy.json
 # vscode settings
 .vscode/
 
-src/_your_package_version.py
+src/_personio_client_version.py
+
+# local smoke test against the live API (reads the credentials from the environment)
+try_api.py
