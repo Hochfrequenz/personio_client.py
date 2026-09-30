@@ -7,23 +7,30 @@ import json
 import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypeVar
+from urllib.parse import quote
 
 import aiohttp
+from pydantic import AwareDatetime
 
 from personio_client.exceptions import (
     PersonioAPIError,
     PersonioAuthenticationError,
+    PersonioClientError,
     PersonioRateLimitError,
 )
-from personio_client.models import OAuth2Token, OAuth2TokenRequest
+from personio_client.models import CursorPage, OAuth2Token, OAuth2TokenRequest, Person
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
     from types import TracebackType
+
+ItemT = TypeVar("ItemT")
 
 DEFAULT_BASE_URL = "https://api.personio.de"
 DEFAULT_MAX_RETRIES = 3
+# The maximum page size of the list endpoints; the iter_* methods use it to save requests.
+MAX_PAGE_SIZE = 50
 # Obtain a new access token this many seconds before the current one expires.
 TOKEN_REFRESH_MARGIN_SECONDS = 60
 # The lifetime of an access token if the token response doesn't state it (the documented default of one day).
@@ -108,6 +115,62 @@ def _error_details(text: str) -> tuple[str | None, str | None]:
             messages.append(": ".join(parts))
     trace_id = body.get("personio_trace_id") or body.get("trace_id")
     return "; ".join(messages) or None, str(trace_id) if trace_id else None
+
+
+def _format_datetime(value: AwareDatetime) -> str:
+    """Format a value for a query parameter of format "date-time" (ISO 8601 with UTC offset).
+
+    Args:
+        value: The timezone-aware datetime.
+
+    Returns:
+        The ISO 8601 timestamp including the UTC offset.
+
+    Raises:
+        ValueError: If the datetime is naive. The API would interpret it in a time zone the caller doesn't know.
+    """
+    if value.utcoffset() is None:
+        raise ValueError(f"timezone-aware datetime required, got a naive datetime: {value!r}")
+    return value.isoformat()
+
+
+def _path_parameter(value: str) -> str:
+    """Percent-encode a value for a path parameter, including slashes.
+
+    Args:
+        value: The value, e.g. an ID.
+
+    Returns:
+        The percent-encoded value.
+    """
+    return quote(value, safe="")
+
+
+async def _iterate_pages(fetch_page: Callable[[str | None], Awaitable[CursorPage[ItemT]]]) -> AsyncIterator[ItemT]:
+    """Yield the items of all pages of a list endpoint, following the cursors of the next links.
+
+    Args:
+        fetch_page: Returns the page for a cursor (None for the first page).
+
+    Yields:
+        The items of all pages.
+
+    Raises:
+        PersonioClientError: If the API returns a cursor twice, i.e. the pagination doesn't advance.
+            A sync job must not continue with a partial result.
+    """
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        page = await fetch_page(cursor)
+        for item in page.data:
+            yield item
+        cursor = page.next_cursor
+        if cursor is None or not page.data:
+            return
+        if cursor in seen_cursors:
+            raise PersonioClientError(f"The pagination doesn't advance: the API returned the cursor {cursor!r} twice")
+        seen_cursors.add(cursor)
 
 
 class PersonioClient:
@@ -364,3 +427,168 @@ class PersonioClient:
         )
         response_text = await self._post_form("/v2/auth/token", request.model_dump(exclude_none=True))
         return OAuth2Token.model_validate_json(response_text)
+
+    # =========================================================================
+    # Persons
+    # =========================================================================
+
+    async def get_persons(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        id: list[str] | None = None,
+        email: list[str] | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        preferred_name: str | None = None,
+        created_at: AwareDatetime | None = None,
+        created_at_gt: AwareDatetime | None = None,
+        created_at_lt: AwareDatetime | None = None,
+        updated_at: AwareDatetime | None = None,
+        updated_at_gt: AwareDatetime | None = None,
+        updated_at_lt: AwareDatetime | None = None,
+        status: Literal["ACTIVE", "INACTIVE"] | None = None,
+    ) -> CursorPage[Person]:
+        """Get one page of persons.
+
+        The filters are combined with a logical AND. Use iter_persons() to get the persons of all pages.
+        The credentials need the scope personio:persons:read.
+
+        Args:
+            limit: The number of persons per page, from 1 to 50. Defaults to 10.
+            cursor: The cursor of the page to return (`next_cursor` of the previous page). Defaults to the first page.
+            id: Filter by the IDs of the persons.
+            email: Filter by the e-mail addresses of the persons.
+            first_name: Filter by the first name.
+            last_name: Filter by the last name.
+            preferred_name: Filter by the preferred name.
+            created_at: Filter by the time of creation.
+            created_at_gt: Return only persons created after this time (query parameter `created_at.gt`).
+            created_at_lt: Return only persons created before this time (query parameter `created_at.lt`).
+            updated_at: Filter by the time of the last update.
+            updated_at_gt: Return only persons updated after this time (query parameter `updated_at.gt`).
+            updated_at_lt: Return only persons updated before this time (query parameter `updated_at.lt`).
+            status: Return only active persons (whose latest employment is active, on leave or onboarding)
+                or inactive persons.
+
+        Returns:
+            A page of persons with the cursor of the next page.
+
+        Raises:
+            ValueError: If a date-time filter is a naive datetime.
+        """
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        if id is not None:
+            params["id"] = ",".join(id)
+        if email is not None:
+            params["email"] = ",".join(email)
+        if first_name is not None:
+            params["first_name"] = first_name
+        if last_name is not None:
+            params["last_name"] = last_name
+        if preferred_name is not None:
+            params["preferred_name"] = preferred_name
+        if created_at is not None:
+            params["created_at"] = _format_datetime(created_at)
+        if created_at_gt is not None:
+            params["created_at.gt"] = _format_datetime(created_at_gt)
+        if created_at_lt is not None:
+            params["created_at.lt"] = _format_datetime(created_at_lt)
+        if updated_at is not None:
+            params["updated_at"] = _format_datetime(updated_at)
+        if updated_at_gt is not None:
+            params["updated_at.gt"] = _format_datetime(updated_at_gt)
+        if updated_at_lt is not None:
+            params["updated_at.lt"] = _format_datetime(updated_at_lt)
+        if status is not None:
+            params["status"] = status
+
+        response_text = await self._get("/v2/persons", params)
+        return CursorPage[Person].model_validate_json(response_text)
+
+    async def get_person(self, person_id: str) -> Person:
+        """Get a person.
+
+        The credentials need the scope personio:persons:read.
+
+        Args:
+            person_id: The ID of the person.
+
+        Returns:
+            The person.
+
+        Raises:
+            PersonioAPIError: With the status code 404 if there is no person with this ID.
+        """
+        response_text = await self._get(f"/v2/persons/{_path_parameter(person_id)}")
+        return Person.model_validate_json(response_text)
+
+    async def iter_persons(
+        self,
+        *,
+        limit: int = MAX_PAGE_SIZE,
+        id: list[str] | None = None,
+        email: list[str] | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        preferred_name: str | None = None,
+        created_at: AwareDatetime | None = None,
+        created_at_gt: AwareDatetime | None = None,
+        created_at_lt: AwareDatetime | None = None,
+        updated_at: AwareDatetime | None = None,
+        updated_at_gt: AwareDatetime | None = None,
+        updated_at_lt: AwareDatetime | None = None,
+        status: Literal["ACTIVE", "INACTIVE"] | None = None,
+    ) -> AsyncIterator[Person]:
+        """Iterate over the persons of all pages.
+
+        Calls get_persons() page by page with the same filters until there is no next page.
+        See get_persons() for the filters.
+
+        Args:
+            limit: The number of persons per page, from 1 to 50. Defaults to 50, which saves requests.
+            id: Filter by the IDs of the persons.
+            email: Filter by the e-mail addresses of the persons.
+            first_name: Filter by the first name.
+            last_name: Filter by the last name.
+            preferred_name: Filter by the preferred name.
+            created_at: Filter by the time of creation.
+            created_at_gt: Return only persons created after this time.
+            created_at_lt: Return only persons created before this time.
+            updated_at: Filter by the time of the last update.
+            updated_at_gt: Return only persons updated after this time.
+            updated_at_lt: Return only persons updated before this time.
+            status: Return only active or inactive persons.
+
+        Yields:
+            The persons.
+
+        Raises:
+            PersonioClientError: If the API returns a cursor twice, i.e. the pagination doesn't advance.
+        """
+
+        async def fetch_page(cursor: str | None) -> CursorPage[Person]:
+            return await self.get_persons(
+                limit=limit,
+                cursor=cursor,
+                id=id,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                preferred_name=preferred_name,
+                created_at=created_at,
+                created_at_gt=created_at_gt,
+                created_at_lt=created_at_lt,
+                updated_at=updated_at,
+                updated_at_gt=updated_at_gt,
+                updated_at_lt=updated_at_lt,
+                status=status,
+            )
+
+        async for person in _iterate_pages(fetch_page):
+            yield person

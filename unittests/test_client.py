@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 
@@ -89,6 +91,22 @@ class TestContextManager:
         """Test that max_retries must not be negative."""
         with pytest.raises(ValueError, match="max_retries"):
             PersonioClient(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, max_retries=-1)
+
+
+class TestSignatures:
+    """Tests for the signatures of the public methods."""
+
+    def test_no_parameter_is_annotated_as_plain_datetime(self) -> None:
+        """Test that date-time parameters are annotated as AwareDatetime to show that they need a timezone."""
+        plain_datetime_parameters = [
+            f"{name}({parameter.name})"
+            for name, method in inspect.getmembers(PersonioClient, inspect.isfunction)
+            if not name.startswith("_")
+            for parameter in inspect.signature(method).parameters.values()
+            if re.search(r"\bdatetime\b", str(parameter.annotation))
+        ]
+
+        assert plain_datetime_parameters == []
 
 
 # =============================================================================
