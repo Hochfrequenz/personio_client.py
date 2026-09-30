@@ -5,7 +5,8 @@ It is built like the Import Client of [decidalo_client.py](https://github.com/Ho
 aiohttp, pydantic models generated from the OpenAPI specs, one method per API operation,
 and tests that keep models, client and README in sync with the specs.
 
-**Status:** Planned on 2026-09-29; nothing is implemented yet. Branch: `feat/personio-v2-client`.
+**Status:** Planned on 2026-09-29, open questions reviewed on 2026-09-30; nothing is implemented yet.
+Repository: [Hochfrequenz/personio_client.py](https://github.com/Hochfrequenz/personio_client.py), branch `feat/personio-v2-client`.
 
 **In scope:**
 
@@ -22,7 +23,7 @@ Plus the convenience methods `iter_persons()` and `iter_employments()`, which wa
 **Out of scope:** `POST /v2/auth/revoke` (part of the auth spec, listed as "not implemented"),
 the write endpoints of persons and employments (`person-write-api-v2`, `employment-write-api-v2`),
 all other v2 APIs (absences, attendances, documents, org units, ...), the v1 API, a synchronous client,
-and retries or rate limit handling (see [Follow-ups](#follow-ups)).
+and retries on server errors (see [Follow-ups](#follow-ups)). Rate limits (429) are retried automatically (decision 17).
 
 ---
 
@@ -39,6 +40,8 @@ and retries or rate limit handling (see [Follow-ups](#follow-ups)).
   - [List persons](https://developer.personio.de/reference/get_v2-persons), [Retrieve a person](https://developer.personio.de/reference/get_v2-persons-id)
   - [List employments](https://developer.personio.de/reference/get_v2-persons-person-id-employments), [Retrieve an employment](https://developer.personio.de/reference/get_v2-persons-person-id-employments-id)
   - [Include our headers in your requests](https://developer.personio.de/reference/include-our-headers-in-your-requests)
+- PyPI: the project list of the [Simple API](https://pypi.org/simple/) and the existing Personio packages
+  (see [Existing Python Packages](#existing-python-packages))
 
 ## Analysis
 
@@ -62,7 +65,10 @@ Personio publishes one OpenAPI file per API area. Three of them cover the scope:
   (`invalid_request`, `invalid_client`, `invalid_grant`, ...), `error_description`, `error_uri`, `timestamp` and `trace_id`.
 - The token endpoint allows 150 requests per minute; beyond that, requests are throttled to 1 per second for 60 seconds.
 - Resource endpoints expect `Authorization: Bearer <access_token>`.
-  `GET /v2/persons` requires the scope `personio:persons:read`; the employment pages name no scope (see [Open Questions](#open-questions)).
+  Both persons endpoints require the scope `personio:persons:read`. The employment read endpoints name no scope,
+  but updating an employment (`employment-write-api-v2`) requires `personio:persons:write`,
+  and none of the 17 v2 specs defines an employments scope; all scopes use plural resource names (`persons`, `absences`, `jobs`, ...).
+  So reading employments most likely needs `personio:persons:read` as well (open question 1).
 - Personio strongly recommends the headers `X-Personio-App-ID` (customers) and `X-Personio-Partner-ID` (integration partners),
   with values in UPPER_SNAKE_CASE; without them, Personio may be unable to support API issues.
 
@@ -77,9 +83,28 @@ Personio publishes one OpenAPI file per API area. Three of them cover the scope:
 - `GET /v2/persons/{id}` and `GET /v2/persons/{person_id}/employments/{id}` return the `Person` or `Employment` object itself.
 - List responses have the form `{"_data": [...], "_meta": {"links": {"self": {"href": ...}, "next": {"href": ".../v2/persons?cursor=cur_..."}}}}`.
   The pagination is cursor-based; the cursor of the next page is only available inside the `next` link.
+- The specs don't say whether filters have to be resent with a cursor. The `next` links of the persons and employments examples
+  only contain the cursor, even for filtered requests. Other v2 APIs differ: the reports API fails if filters are sent along with a cursor,
+  the `next` links of the org units API repeat the filters, and some cursors are opaque base64 values that carry offset and limit.
+- A [forum thread](https://developer.personio.de/discuss/66ed43cf97e5610010204acb) (2024) reports a `next` link of `/v2/persons`
+  that pointed to its own page, so the pagination never advanced.
+  The attendance periods API used relative `next` links until a [changelog](https://developer.personio.de/changelog/absolute-urls-in-pagination-links-for-attendance-periods-api-v2)
+  switched them to absolute URLs.
 - Errors (400, 404) are `application/problem+json`:
   `{"personio_trace_id": ..., "timestamp": ..., "errors": [{"title": ..., "detail": ..., "type": ..., "_meta": {...}}]}`.
 - A person references its employments only by ID (`employments: [{"id": ...}]`), so reading the employments of all persons takes one request per person.
+
+### Rate Limits
+
+- The persons and employments specs document no rate limits, no 429 response and no rate limit headers.
+  Of all 17 v2 specs, only `jobs-v2` documents a 429 ("The rate limit has been exceeded"), without headers such as `Retry-After`.
+- Documented limits exist only for the token endpoint (150 requests per minute, see [Authentication](#authentication))
+  and, in a [v1 changelog](https://developer.personio.de/changelog/rate-limits-on-get-employees-endpoint-may-6-2024),
+  for `GET /company/employees` (300 requests per minute, bursts of 15 per second).
+- Forum threads report ["significant rate limiting on the persons endpoint"](https://developer.personio.de/discuss/6901cd6289d055814a6f57a0)
+  (about 2025-10, "it feels like we are mostly guessing them") and
+  [429 responses despite the recommended timing](https://developer.personio.de/discuss/67ad33de7de5140018892fb0); neither got an answer from Personio.
+- Reading the employments of 500 persons takes about 510 requests, so hitting a rate limit is likely.
 
 ### Spec Quirks
 
@@ -101,14 +126,43 @@ A trial generation of the models (datamodel-code-generator 0.71.0) and a validat
 6. `Employment.sub_company` is deprecated, which becomes `Field(deprecated=True)` and needs pydantic >= 2.7.
 7. `Person` and `Employment` declare no required fields, so every field is optional (`X | None = None`).
 8. The employment dates `probation_end_date`, `employment_start_date`, `employment_end_date` and `contract_end_date`
-   are plain strings (no `format: date`), while the dates of `termination` are `date`.
+   are plain strings (no `format: date`; all examples are `YYYY-MM-DD` or `null`), while the dates of `termination` are `date`,
+   and the write specs (`person-write-api-v2`, `employment-write-api-v2`) define the same fields as `format: date`.
 9. Mismatches that don't break parsing: `employment_end_date: null` although the field isn't nullable,
    `termination.last_working_date` in the example versus `last_working_day` in the schema,
    and the `next` link of the employment examples points to `/v2/employments?cursor=...`.
 10. The auth spec contains two unused v1 schemas (`V1AuthTokenRequest`, `V1AuthenticationTokenResponse`).
+11. The value of a custom attribute is typed as `str | list[str] | list[dict[str, Any]]` ("an arbitrary value that can be represented as a string"),
+    although Personio knows the attribute types `INT`, `DOUBLE`, `BOOLEAN` and `DATE`.
+    A number or boolean would fail to validate ("Input should be a valid string") and make the whole page unparsable.
+12. Two formats become strict types: `Employment.job.id` (`format: uuid`) becomes `UUID`, which rejects values like `""` or `"47"`,
+    although all other IDs are plain strings (even the employment ID, which is a UUID in the examples);
+    the Jobs API (`jobs-v2`) documents the job ID as a UUID, too.
+    The links in the `_meta` of a person or employment (`format: uri`) become `AnyUrl`, which rejects relative links
+    and re-encodes characters like `<` and `>`.
 
 With the flags of [decision 5](#decisions), all 15 examples validate, and the generated code passes `ruff format`,
-`mypy --strict` (with the pydantic plugin) and `codespell`; `ruff check` only reports five long description lines (E501).
+`mypy --strict` (with the pydantic plugin) and `codespell`; `ruff check` only reports long description lines (E501).
+
+### Existing Python Packages
+
+Only four of the 902,475 projects on PyPI (checked on 2026-09-30) have "personio" in their name, and none of them covers the scope of this plan:
+
+| Package | Import package | Personio API | Scope | Style | Latest release on PyPI |
+| --- | --- | --- | --- | --- | --- |
+| [`personio-py`](https://pypi.org/project/personio-py/) | `personio_py` | v1 | employees, attendances, absences, projects | synchronous (requests) | 0.2.3 (2023-05) |
+| [`personio-api-client`](https://pypi.org/project/personio-api-client/) | `personio_api_client` | v1; v2 only on GitHub | v1: employees, time-offs; v2 (GitHub releases 0.2.0 and 0.2.1, not on PyPI): projects, attendance periods | synchronous (httpx), also has a class `PersonioClient` | 0.1.0 (2026-01) |
+| [`personio-client-api`](https://pypi.org/project/personio-client-api/) | `personio_client_api` | v1 | token and employees (raw dicts, no pagination) | synchronous (requests) | 0.1.2 (2024-08) |
+| [`dlt-source-personio`](https://pypi.org/project/dlt-source-personio/) | `dlt_source_personio` | v1 and v2 | loads all persons and their employments into a [dlt](https://dlthub.com) pipeline; no filters, no retrieval by ID | pipeline source, not a client library | 0.0.4 (2025-12) |
+
+- No project name collides with `personio-client`: none is identical after PEP 503 normalization,
+  none after removing the separators and folding confusable characters (`0`/`o`, `1`/`l`/`i`),
+  and none is within an edit distance of 2. None of the four packages installs the import package `personio_client`
+  (checked in their wheels via the [PyPI inspector](https://inspector.pypi.io/)).
+- `dlt-source-personio` generates its models from an unofficial v2 spec derived from the docs.
+  It solved the same problems as this plan: lowercase custom attribute types with values typed by attribute type
+  (numbers, booleans, dates), employment dates as dates, lenient `_meta` links, and a retry strategy added later.
+  This supports decisions 5 and 17, but is no proof.
 
 ## Target Design
 
@@ -125,7 +179,7 @@ src/personio_client/
   __init__.py                       # PersonioClient, CursorPage, Person, Employment, OAuth2Token, exceptions
   py.typed
   client.py                         # PersonioClient
-  exceptions.py                     # PersonioClientError, PersonioAPIError, PersonioAuthenticationError
+  exceptions.py                     # PersonioClientError, PersonioAPIError, PersonioAuthenticationError, PersonioRateLimitError
   models/
     __init__.py                     # re-exports the generated models and CursorPage
     _pagination.py                  # CursorPage[T], hand-written (list responses are inline in the spec)
@@ -166,6 +220,7 @@ class PersonioClient:
         scope: list[str] | None = None,  # default: all scopes of the credentials
         app_id: str | None = None,  # sent as X-Personio-App-ID
         partner_id: str | None = None,  # sent as X-Personio-Partner-ID
+        max_retries: int = 3,  # retries of a request answered with 429; 0 disables them
         base_url: str = "https://api.personio.de",
         session: aiohttp.ClientSession | None = None,
     ) -> None: ...
@@ -235,8 +290,9 @@ asyncio.run(main())
 
 ## Decisions
 
-1. **Names:** distribution and package `personio_client` (the PyPI name `personio-client` was free on 2026-09-29),
-   class `PersonioClient`, exceptions `Personio...Error`, as in `decidalo_client`. Async only (aiohttp), as in the model.
+1. **Names:** distribution and package `personio_client` (confirmed in the review of the open questions):
+   the PyPI name `personio-client` is free and collides with no other project or import package (see [Existing Python Packages](#existing-python-packages)).
+   Class `PersonioClient`, exceptions `Personio...Error`, as in `decidalo_client`. Async only (aiohttp), as in the model.
 2. **Scope:** "the GET endpoints of persons and employments" is read as list and retrieve for both (four operations),
    plus the token endpoint. `POST /v2/auth/revoke` stays unwrapped, but shows up as "not implemented" in the API coverage of the README.
 3. **Specs in the repository:** the three specs are stored under `openapi/v2/` with the names Personio uses, as pretty-printed `.json` files.
@@ -253,7 +309,20 @@ asyncio.run(main())
      Alternative: generated enums as in the model. Rejected because the official examples already fail with them,
      and every value Personio adds later (e.g. a new termination type) would make a whole page of persons or employments unparsable.
      Trade-off: no enum classes; comparisons with string literals work the same (`employment.status == "ACTIVE"`).
-   - `--type-mappings email=string`: `email` is a plain `str` (quirk 5, no `email-validator` dependency).
+   - `--type-mappings email=string uuid=string uri=string`: e-mail addresses, the job ID and the `_meta` links are plain `str`
+     (quirks 5 and 12; `uuid` and `uri` agreed in the review of the open questions).
+     They are opaque values the client only passes on, so a validation adds little, but could make a whole page unparsable;
+     all IDs are `str` then, and relative links work. No `email-validator` dependency is needed.
+     `date` and `AwareDatetime` stay typed, because they are useful for incremental syncs (`updated_at.gt`).
+   - `--type-overrides` for the only fields that deviate from the spec (agreed in the review of the open questions):
+     - `PersonCustomAttribute.value` → `pydantic.JsonValue`: the value of a custom attribute accepts any JSON value (quirk 11);
+       users have to distinguish its types with `isinstance` anyway.
+     - `Employment.probation_end_date`, `employment_start_date`, `employment_end_date` and `contract_end_date` → `datetime.date` (quirk 8):
+       the write specs define them as dates, all examples are `YYYY-MM-DD` or `null`, and the dates of `termination` are typed, too.
+       An empty string or a format like `17.01.2024` would fail to validate; the smoke test checks the real values.
+
+     The overrides don't change the other specs, but datamodel-codegen silently ignores an override whose key doesn't match
+     (e.g. after a renaming), so a unit test guards them.
    - `--disable-timestamp`: regenerating an unchanged spec produces no diff.
    - `--formatters builtin`, followed by `ruff format` and `ruff check --select I --fix` as in the model
      (avoids the deprecation warning of the default formatters black and isort).
@@ -269,14 +338,21 @@ asyncio.run(main())
    the generated package gets an exclusion as in the model.
 8. **List responses return `CursorPage[T]`**, a small hand-written generic model with the fields `data` (alias `_data`)
    and `meta` (alias `_meta`) and a property `next_cursor`, which reads the `cursor` query parameter of `_meta.links.next.href`
-   (`None` on the last page).
+   (`None` on the last page). It works with absolute and relative links and ignores the path of the link,
+   which is wrong in the employment examples (quirk 9).
    Alternative: generating the inline schemas with `--openapi-scopes paths`, which would make names like `V2PersonsGetResponse`
    public return types (quirk 2).
 9. **`iter_persons()` and `iter_employments()`** are async generators that call their list method page by page
-   until there is no `next_cursor` or a page is empty, resending the same filters with each cursor.
+   until there is no `next_cursor` or a page is empty.
    Their page size defaults to the maximum of 50 to save requests. They are the only public methods outside the 1:1 rule.
-   Alternatives: `get_all_*()` returning lists (whole result in memory, no early exit);
-   a generic `paginate(method, **filters)` (typable via `ParamSpec`, but harder to discover).
+   - They resend the same filters and `limit` with each cursor (agreed in the review of the open questions):
+     the result is either correct or a loud error (e.g. a 400, if the API rejects filters next to a cursor), never silently wrong.
+     Alternatives: sending only the cursor, or taking the query of the `next` link;
+     both would silently return unfiltered pages if the cursor doesn't carry the filters.
+   - If a cursor repeats, they raise `PersonioClientError` instead of looping forever or silently returning a partial result
+     (the forum bug, see [Resource Endpoints](#resource-endpoints)); a sync job must not continue with incomplete data.
+   - Alternatives to the iterators: `get_all_*()` returning lists (whole result in memory, no early exit);
+     a generic `paginate(method, **filters)` (typable via `ParamSpec`, but harder to discover).
 10. **Authentication:** the client receives the credentials and obtains a token lazily with the first request.
     It caches the token and obtains a new one 60 s before `expires_in` runs out (24 h if `expires_in` is missing);
     the expiry is measured with `time.monotonic()`.
@@ -291,7 +367,7 @@ asyncio.run(main())
     - Other errors raise `PersonioAPIError`; the message is built from `errors[].title` and `errors[].detail` of the
       problem+json body, falling back to the raw body.
     - `trace_id` (from `personio_trace_id` or `trace_id`) is kept because Personio support asks for it.
-    - 429 is a plain `PersonioAPIError` for now.
+    - A 429 raises `PersonioRateLimitError` (a `PersonioAPIError` with `retry_after`) once the retries are exhausted (decision 17).
 12. **Headers:** `app_id` and `partner_id` are optional and sent as `X-Personio-App-ID` and `X-Personio-Partner-ID`
     with every request, including the token request.
 13. **Parameter types:**
@@ -307,6 +383,29 @@ asyncio.run(main())
     and a `codegen` group with `datamodel-code-generator==0.71.0` (the version of the trial generation) and the linting group.
 15. **Template:** pre-commit and the workflows of the template stay; only the package paths change.
     Job names stay unchanged because they are required status checks.
+16. **No specific scope by default** (agreed in the review of the open questions):
+    the client requests no scope (`scope=None`), so the token gets all scopes of the credentials.
+    This keeps working if Personio renames or adds scopes. Least privilege belongs to the credentials:
+    the README names the required scope `personio:persons:read` and recommends credentials with only this scope.
+    Alternative: requesting `personio:persons:read` by default, rejected because it breaks if the employment endpoints
+    need another scope or Personio renames it.
+17. **Automatic retries on 429** (agreed in the review of the open questions; see [Rate Limits](#rate-limits)):
+    - The constructor takes `max_retries` (default 3; 0 disables the retries).
+    - A request answered with 429 is repeated after the delay of the `Retry-After` header (seconds or HTTP date) if there is one,
+      otherwise after 1 s, 2 s and 4 s. Each attempt fetches the access token again, in case it expired while waiting.
+    - Once the retries are exhausted, the client raises `PersonioRateLimitError` with `retry_after`.
+    - The retries live in the shared request helper, so they apply to all requests, including the token request and the iterators.
+    - Retries on server errors (5xx) are a follow-up.
+    Alternatives: no retries (every user would have to write their own for the main use case, reading the employments of all persons);
+    client-side throttling (not sensible while the limits are unknown).
+18. **An own client instead of contributing to `personio-api-client`** (agreed on 2026-09-30):
+    none of the existing packages offers the v2 persons and employments endpoints as a library (see [Existing Python Packages](#existing-python-packages)).
+    Contributing them to `personio-api-client` would mean writing the same code in its style (synchronous, hand-written models)
+    instead of following this plan (async like `decidalo_client`, models generated from the specs with drift tests, 1:1 mapping, retries),
+    and its releases depend on a single maintainer (its GitHub releases 0.2.0 and 0.2.1 haven't reached PyPI).
+    The README explains how this client differs from the similarly named packages, so that nobody confuses them
+    (in particular `personio-api-client`, which also has a class `PersonioClient`),
+    and says that we may approach the maintainer of `personio-api-client` (see [Follow-ups](#follow-ups)).
 
 ## The 1:1 Mapping Rule
 
@@ -337,7 +436,7 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
 
 - Modify `pyproject.toml`:
   - Metadata: name `personio_client`, description "An async Python client for the Personio API v2 (persons and employments)",
-    authors as in the model, URLs of this repository, keywords.
+    authors as in the model, URLs pointing to `https://github.com/Hochfrequenz/personio_client.py`, keywords.
   - Dependencies (decision 14) and dependency groups: `tests` + `pytest-asyncio==1.4.0`, `aioresponses==0.7.9`;
     new `codegen` = `datamodel-code-generator==0.71.0` + linting; `dev` + `codegen`.
   - `[tool.ruff]`: `target-version = "py311"`;
@@ -346,14 +445,18 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
   - `[tool.hatch.build.hooks.vcs]`: `version-file = "src/_personio_client_version.py"`.
   - `[tool.pytest.ini_options]`: `asyncio_mode = "auto"`, `asyncio_default_fixture_loop_scope = "function"`.
 - Replace `src/mypackage/` by `src/personio_client/` (`__init__.py`, `py.typed`); delete `unittests/test_myclass.py`.
-- Create `src/personio_client/exceptions.py` (decision 11) and `unittests/test_exceptions.py`, so that the test suite isn't empty.
+- Create `src/personio_client/exceptions.py` (decisions 11 and 17) and `unittests/test_exceptions.py`, so that the test suite isn't empty.
 - `.github/workflows/pythonlint.yml`: `src/mypackage` → `src/personio_client`; add `scripts` to ruff and mypy.
 - `.pre-commit-config.yaml`: `files: ^(src/personio_client|unittests|scripts)/`.
 - `.gitignore`: `/src/_personio_client_version.py` and `try_api.py` (local smoke test, Task 8).
 - `domain-specific-terms.txt`: add the words codespell flags (e.g. `personio`).
 - Create `LICENSE` (MIT, as declared in `pyproject.toml`; copyright holder as in the model).
 - `README.md`: replace the template text by a short description of the project, including the disclaimer
-  that this is a community project and not an official Personio client (completed in Task 7).
+  that this is a community project and not an official Personio client, and a section on related packages (decision 18):
+  the similarly named `personio-api-client`, `personio-client-api`, `personio-py` and `dlt-source-personio`,
+  how this client differs (API v2 persons and employments, async, models generated from the official specs),
+  and that we may approach the maintainer of `personio-api-client`.
+  The repository is public already, so this section comes first; the rest of the README follows in Task 7.
 - Run `uv lock`.
 - Commit: `chore: turn the template into the personio_client project`
 
@@ -368,13 +471,22 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
       "persons-service-api-v2": "persons",
       "employment-contract-v2": "employments",
   }
+  TYPE_OVERRIDES = {  # the only deviations from the specs, see decision 5
+      "PersonCustomAttribute.value": "pydantic.JsonValue",
+      "Employment.probation_end_date": "datetime.date",
+      "Employment.employment_start_date": "datetime.date",
+      "Employment.employment_end_date": "datetime.date",
+      "Employment.contract_end_date": "datetime.date",
+  }
   CODEGEN_FLAGS = [
       "--input-file-type", "openapi",
       "--output-model-type", "pydantic_v2.BaseModel",
       "--target-python-version", "3.11",
       "--use-annotated", "--use-double-quotes", "--collapse-root-models", "--field-constraints",
       "--strict-nullable", "--use-standard-collections", "--extra-fields", "ignore",
-      "--ignore-enum-constraints", "--naming-strategy", "full-path", "--type-mappings", "email=string",
+      "--ignore-enum-constraints", "--naming-strategy", "full-path",
+      "--type-mappings", "email=string", "uuid=string", "uri=string",
+      "--type-overrides", json.dumps(TYPE_OVERRIDES),
       "--disable-timestamp", "--formatters", "builtin",
   ]
   ```
@@ -422,7 +534,8 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
 ### Task 4: Client Core and Authentication
 
 - Create `src/personio_client/client.py`:
-  - Constants `DEFAULT_BASE_URL`, `MAX_PAGE_SIZE = 50`, `TOKEN_REFRESH_MARGIN_SECONDS = 60`, `DEFAULT_TOKEN_LIFETIME_SECONDS = 86400`.
+  - Constants `DEFAULT_BASE_URL`, `MAX_PAGE_SIZE = 50`, `TOKEN_REFRESH_MARGIN_SECONDS = 60`, `DEFAULT_TOKEN_LIFETIME_SECONDS = 86400`,
+    `DEFAULT_MAX_RETRIES = 3`.
   - `_format_datetime()` as in the model.
   - `__init__`, `__aenter__` and `__aexit__` as in `DecidaloClient` (an external session is used, but not closed).
   - `_ensure_access_token()` (decision 10):
@@ -443,6 +556,8 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
 
   - `_handle_response()` (error mapping, decision 11), `_get(path, params)` (Bearer token; discards the token on 401)
     and `_post_form(path, form)` (no token; errors of the token endpoint become `PersonioAuthenticationError`).
+    Both send via a shared `_send()`, which retries a 429 (decision 17): it waits as long as `Retry-After` says,
+    otherwise 1 s, doubling with each retry, and raises `PersonioRateLimitError` when the retries are exhausted.
   - `obtain_access_token()`: form body from `OAuth2TokenRequest(grant_type="client_credentials", ...).model_dump(exclude_none=True)`,
     response parsed as `OAuth2Token`.
 - `src/personio_client/__init__.py`: exports.
@@ -456,6 +571,7 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
   ```python
   async def iter_persons(self, *, limit: int = MAX_PAGE_SIZE, id: list[str] | None = None, ...) -> AsyncIterator[Person]:
       cursor: str | None = None
+      seen_cursors: set[str] = set()
       while True:
           page = await self.get_persons(limit=limit, cursor=cursor, id=id, ...)
           for person in page.data:
@@ -463,6 +579,9 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
           cursor = page.next_cursor
           if cursor is None or not page.data:
               return
+          if cursor in seen_cursors:
+              raise PersonioClientError(f"The pagination doesn't advance: the cursor {cursor!r} was returned twice")
+          seen_cursors.add(cursor)
   ```
 
 - Create `unittests/test_persons.py`.
@@ -478,9 +597,14 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
 
 - Create `unittests/test_api_coverage.py`, adapted from the model: it reads all specs in `openapi/v2/`,
   knows the request helpers `_get` (GET) and `_post_form` (POST), and checks the `iter_*` exception of the 1:1 rule.
-- `README.md`: badges, installation, usage (as above), authentication (credentials, required scopes, `app_id`),
-  pagination, error handling, the API coverage section between `<!-- api-coverage:start -->` and `<!-- api-coverage:end -->`
-  (printed by `PYTHONPATH=src uv run --group tests python unittests/test_api_coverage.py`), development (generator script) and license.
+- `README.md`, completing the version of Task 2:
+  - badges, installation, usage (as above)
+  - authentication: credentials, the required scope `personio:persons:read`, `app_id`
+  - pagination, custom attributes (compare `type` case-insensitively; `value` is any JSON value), error handling
+  - rate limits: automatic retries, `max_retries`, and limiting concurrent employment requests (e.g. with an `asyncio.Semaphore`)
+  - the API coverage section between `<!-- api-coverage:start -->` and `<!-- api-coverage:end -->`
+    (printed by `PYTHONPATH=src uv run --group tests python unittests/test_api_coverage.py`)
+  - development (generator script) and license
 - Commits: `test: check the API coverage against the specs`, `docs: document usage and API coverage in the README`
 
 ### Task 8: Smoke Test Against the Live API
@@ -488,8 +612,13 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
 Not part of CI; needs real, read-only credentials:
 
 - A local, git-ignored `try_api.py` (as in the model) reads `PERSONIO_CLIENT_ID` and `PERSONIO_CLIENT_SECRET` from the environment.
+- It uses credentials that only have the scope `personio:persons:read` (open question 1).
 - It obtains a token and prints the granted scopes, iterates the persons with `limit=5` over several pages with and without filters,
   reads the employments of some persons, and retrieves a single person and a single employment.
+- It runs `iter_persons(status="ACTIVE", limit=5)` over at least three pages and checks that every person matches the filter
+  and that the cursor advances (open question 2).
+- It prints the `type` and the JSON type of the `value` of every kind of custom attribute it sees (open question 3).
+- It prints the response headers of a normal request (are there rate limit headers?) and those of any 429 (open question 5).
 - It reports values that contradict the spec (see [Open Questions](#open-questions)).
 - The results go into this plan; required changes (e.g. to decision 9) get their own commits.
 
@@ -514,7 +643,10 @@ so the tests use the format Personio documents.
   - Token handling: two requests obtain one token; concurrent requests (`asyncio.gather`) obtain one token;
     an expired token (patched `time.monotonic`) is replaced; a missing `expires_in` means 24 h; a 401 discards the token.
   - Errors of resource endpoints: the `ResourceNotFound` example raises `PersonioAPIError` with message and `trace_id`;
-    401 and 403 raise `PersonioAuthenticationError`; a non-JSON body becomes the message; 429 raises `PersonioAPIError`.
+    401 and 403 raise `PersonioAuthenticationError`; a non-JSON body becomes the message.
+  - Retries (decision 17): a 429 followed by a 200 returns the result; the delay follows `Retry-After` (seconds and HTTP date)
+    or doubles from 1 s (checked via a patched `asyncio.sleep`); after `max_retries` a `PersonioRateLimitError` with `retry_after`
+    is raised; `max_retries=0` raises at once; the token request is retried, too.
   - Headers: `Authorization: Bearer ...` and `Accept: application/json`; `X-Personio-App-ID` and `X-Personio-Partner-ID` only if configured.
   - Date-time parameters: a naive datetime raises `ValueError`; an offset is sent URL-encoded (`%2B02:00`);
     no parameter is annotated as a plain `datetime` (as in the model).
@@ -525,16 +657,19 @@ so the tests use the format Personio documents.
   - The retrieve method parses the example; `get_person()` uses the example with the lowercase custom attribute type
     (regression test for decision 5); path parameters are percent-encoded.
   - The `iter_*` method walks through three mocked pages in order, sends `limit=50`, resends the filters with each cursor,
-    and stops without a `next` link and on an empty page.
+    stops without a `next` link and on an empty page, and raises `PersonioClientError` if a cursor repeats.
   - The `iter_*` method accepts the same filters as its list method, except `cursor` (compared via `inspect.signature`).
 - `test_models.py`
   - Every component schema of each spec has a generated class of the same name in the corresponding module.
   - No model forbids extra fields; an unknown field is ignored.
   - No enum class is generated (guard for `--ignore-enum-constraints`).
+  - `PersonCustomAttribute.value` accepts numbers and booleans, and the four employment dates are parsed as `date`
+    (guards for the type overrides).
+  - No generated field uses `UUID`, `AnyUrl` or `EmailStr` (guard for the type mappings).
   - All response examples of the specs validate against the models.
   - Class names defined in more than one generated module have identical JSON schemas (currently `FieldMeta` and `FieldMetaLinks`),
     so the star imports can't shadow a different model.
-  - `CursorPage.next_cursor` with and without `next` link, and with a link without cursor.
+  - `CursorPage.next_cursor` with and without `next` link, with a relative link, and with a link without cursor.
 - `test_api_coverage.py`: every method calls a documented operation, no operation is wrapped twice,
   the `iter_*` methods delegate to exactly one list method, and the API coverage section of the README is up to date.
 
@@ -557,29 +692,42 @@ All GitHub workflows are green, the README is complete, and the smoke test is do
 
 ## Open Questions
 
-To be answered by the smoke test (Task 8):
+Reviewed on 2026-09-30; all points are resolved or decided. The smoke test (Task 8) confirms the assumptions behind points 1 to 6.
 
-1. Which scope does the employments endpoint need (`personio:employments:read`? The token example shows `personio:employment:read`)?
-   The README should name the scopes the credentials need.
-2. Does the API accept the filters together with a cursor, and does the cursor keep them? Decision 9 resends them with each page.
-3. Custom attributes: is `type` sent in upper or lower case, and which JSON types does `value` have for `INT`, `DOUBLE`, `BOOLEAN` and `DATE`?
-   Numbers or booleans would fail the generated type `str | list[str] | list[dict[str, Any]]`.
-4. Is `job.id` always a UUID (generated as `UUID`)?
-5. What are the rate limits of the persons and employments endpoints, and which headers come with a 429
-   (`Retry-After`, `X-RateLimit-*`)? Reading all employments takes one request per person.
-6. Are the plain-string employment dates always `YYYY-MM-DD`? If so, a later version could offer them as `date`
-   (a deliberate deviation from the spec).
-7. Where does the repository live in the end (`hf-nsoeker/personio_client.py` or the Hochfrequenz organization),
-   and is `personio-client` the PyPI name?
+1. **Resolved:** Which scope does the employments endpoint need?
+   Most likely `personio:persons:read`, like the persons endpoints (see [Authentication](#authentication));
+   the client requests no specific scope anyway (decision 16).
+   The smoke test confirms it with credentials that only have `personio:persons:read`.
+2. **Decided:** Does the API accept the filters together with a cursor, and does the cursor keep them?
+   Not documented for persons and employments, and other v2 APIs differ (see [Resource Endpoints](#resource-endpoints)).
+   The iterators resend the filters (decision 9). The smoke test checks that filtered pages keep the filter and that the cursor advances;
+   if the API answers a filter next to a cursor with a 400, the iterators switch to taking the query of the `next` link.
+3. **Decided:** Custom attributes: is `type` sent in upper or lower case, and which JSON types does `value` have for `INT`, `DOUBLE`, `BOOLEAN` and `DATE`?
+   Neither breaks the parsing anymore: `type` is a plain `str`, and `value` accepts any JSON value (decision 5).
+   The smoke test records the actual casing and value types, so that the README can describe them.
+4. **Decided:** Is `job.id` always a UUID?
+   Most likely (the Jobs API documents it as a UUID, too), but it doesn't matter anymore: the job ID is a plain `str` (decision 5).
+5. **Decided:** What are the rate limits of the persons and employments endpoints, and which headers come with a 429?
+   They aren't documented (see [Rate Limits](#rate-limits)), so the client retries a 429 automatically (decision 17).
+   The smoke test records the rate limit headers, if there are any.
+6. **Decided:** Are the plain-string employment dates always `YYYY-MM-DD`?
+   Most likely (the write specs define them as dates, and all examples match), so they are generated as `date` (decision 5).
+   The smoke test checks that all real employments parse.
+7. **Resolved:** Where does the repository live, and is `personio-client` the PyPI name?
+   The repository was transferred to [Hochfrequenz/personio_client.py](https://github.com/Hochfrequenz/personio_client.py) (public) on 2026-09-29,
+   and the name `personio-client` stays (decision 1; no collisions, see [Existing Python Packages](#existing-python-packages)).
 
 ## Follow-ups
 
-- Retries with backoff for 429 and 5xx, honoring `Retry-After`.
+- Retries on server errors (502, 503, 504), and client-side throttling if the smoke test finds rate limit headers.
 - `POST /v2/auth/revoke` as `revoke_access_token()`.
 - More v2 APIs (e.g. org units, cost centers, legal entities, absences) and the write endpoints of persons and employments.
 - Activate the publishing workflow (GitHub environment `release`, PyPI trusted publisher) and release v0.1.0.
 - Dependabot ecosystem `uv` instead of `pip`, as in the model.
 - A scheduled workflow that downloads the specs and reports changes.
+- Possibly approach the maintainer of `personio-api-client` (decision 18), e.g. to link the READMEs to each other
+  and to point out that its GitHub releases 0.2.0 and 0.2.1 haven't reached PyPI;
+  0.2.1 adapts the v1 authentication to Personio rejecting credentials in the query string from 2026-12-01.
 
 ## How to Sync the Specs
 
