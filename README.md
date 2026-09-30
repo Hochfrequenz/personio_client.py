@@ -14,7 +14,8 @@ It obtains access tokens and reads persons and employments.
 > It is not affiliated with or endorsed by Personio SE & Co. KG.
 
 > [!NOTE]
-> The client is tested against the examples of the OpenAPI specs of Personio, but not yet against the live API.
+> Besides the unit tests with the examples of the OpenAPI specs, the client was checked against the live API
+> with read-only credentials on 2026-09-30 (see task 8 of the [implementation plan](docs/plans/2026-09-29-personio-v2-client.md)).
 
 ## Installation
 
@@ -49,8 +50,7 @@ if __name__ == "__main__":
 
 - The client authenticates with API credentials of Personio
   (see [Generate and manage API credentials](https://support.personio.de/hc/en-us/articles/4404623630993-Generate-and-manage-API-credentials)).
-  They need the scope `personio:persons:read`: the persons endpoints document it,
-  and the employment endpoints most likely need the same (their spec names no scope).
+  They need the scope `personio:persons:read`, for the persons and the employment endpoints.
   We recommend credentials that have only this scope.
 - The client obtains an access token when it sends its first request, and a new one shortly before the token expires
   (tokens are valid for one day). By default, the token gets all scopes of the credentials; pass `scope=[...]` to restrict it.
@@ -86,8 +86,9 @@ The models are generated from the OpenAPI specs of Personio with [pydantic](http
 Fields the API adds are ignored. Because the spec declares no required fields, every field is optional.
 To keep an unexpected value from breaking the parsing of a whole page, the models deviate from the specs in a few places:
 
-- Enums are plain strings. Compare them case-insensitively where the casing is unclear:
-  the examples of Personio send the custom attribute type `string`, while the spec lists `STRING`.
+- Enums are plain strings. Personio isn't consistent in their casing: the API sends the custom attribute types
+  in lower case (`string`, `date`), while the spec lists `STRING` and `DATE`; the statuses are upper case (`ACTIVE`).
+  Compare them case-insensitively.
 - E-mail addresses, IDs and links are plain strings.
 - The `value` of a custom attribute is any JSON value (a string, a number, a boolean, a list, ...).
 - The employment dates (`employment_start_date`, `employment_end_date`, `probation_end_date`, `contract_end_date`)
@@ -96,6 +97,8 @@ To keep an unexpected value from breaking the parsing of a whole page, the model
 ### Rate Limits
 
 Personio doesn't document the rate limits of these endpoints.
+Its responses carry the headers of a token bucket (`x-ratelimit-burst-capacity`, `x-ratelimit-replenish-rate`, `x-ratelimit-remaining`);
+in our test, the bucket held 100 requests.
 The client retries a request answered with 429 Too Many Requests up to `max_retries` times (default 3),
 waiting as long as the `Retry-After` header says, otherwise 1 s, 2 s and 4 s.
 Then it raises `PersonioRateLimitError`. Pass `max_retries=0` to disable the retries.

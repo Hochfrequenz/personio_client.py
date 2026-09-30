@@ -5,7 +5,9 @@ It is built like the Import Client of [decidalo_client.py](https://github.com/Ho
 aiohttp, pydantic models generated from the OpenAPI specs, one method per API operation,
 and tests that keep models, client and README in sync with the specs.
 
-**Status:** Planned on 2026-09-29, open questions reviewed on 2026-09-30; nothing is implemented yet.
+**Status:** Planned on 2026-09-29, open questions reviewed on 2026-09-30; implemented in
+[#3](https://github.com/Hochfrequenz/personio_client.py/pull/3) and checked against the live API on 2026-09-30
+(see [Task 8](#task-8-smoke-test-against-the-live-api)).
 Repository: [Hochfrequenz/personio_client.py](https://github.com/Hochfrequenz/personio_client.py), branch `feat/personio-v2-client`.
 
 **In scope:**
@@ -105,6 +107,8 @@ Personio publishes one OpenAPI file per API area. Three of them cover the scope:
   (about 2025-10, "it feels like we are mostly guessing them") and
   [429 responses despite the recommended timing](https://developer.personio.de/discuss/67ad33de7de5140018892fb0); neither got an answer from Personio.
 - Reading the employments of 500 persons takes about 510 requests, so hitting a rate limit is likely.
+- The smoke test (Task 8) found token bucket headers on every response:
+  `x-ratelimit-burst-capacity`, `x-ratelimit-replenish-rate`, `x-ratelimit-requested-tokens` and `x-ratelimit-remaining`.
 
 ### Spec Quirks
 
@@ -625,6 +629,24 @@ Not part of CI; needs real, read-only credentials:
 - It reports values that contradict the spec (see [Open Questions](#open-questions)).
 - The results go into this plan; required changes (e.g. to decision 9) get their own commits.
 
+Results of 2026-09-30 (read-only credentials; up to 100 persons and the employments of 10 persons):
+
+- Token: `expires_in` 86400; the credentials had the scopes `employees:read` (a v1 scope) and `personio:persons:read`.
+- Pagination: the cursor advances (20 distinct persons on 4 pages of 5); resending the filter with the cursor works
+  (only active persons on 4 pages of `status=ACTIVE`); the cursor also carries the filter itself
+  (the next page of `status=INACTIVE`, fetched with the cursor alone, contained only inactive persons).
+  The `next` link is absolute and contains only the cursor. The forum bug didn't occur.
+- 100 persons (95 active, 5 inactive) and 10 employments parsed without errors; the retrieval by ID works for both.
+- Custom attributes: the types come in lower case, `string` (298) and `date` (96), unlike the enum of the spec;
+  all values are strings. The credentials had no attributes of the types INT, DOUBLE or BOOLEAN.
+- Employments: `employment_start_date` is `YYYY-MM-DD`, the other three dates were `null`; the job IDs were `null`;
+  `type` wasn't set; the terminations contain `termination_date` and `terminated_at`.
+- Rate limits: every response has token bucket headers with `x-ratelimit-burst-capacity: 100`,
+  `x-ratelimit-replenish-rate: 30` and `x-ratelimit-requested-tokens: 1`
+  (the header names of the rate limiter of Spring Cloud Gateway, which refills per second); no request was answered with 429.
+- A token restricted to the scope `personio:persons:read` can read the employments, too.
+- No code change was needed.
+
 ### Task 9: Pull Request
 
 - PR `feat/personio-v2-client` → `main`; the description lists the decisions and the results of the smoke test.
@@ -695,34 +717,39 @@ All GitHub workflows are green, the README is complete, and the smoke test is do
 
 ## Open Questions
 
-Reviewed on 2026-09-30; all points are resolved or decided. The smoke test (Task 8) confirms the assumptions behind points 1 to 6.
+Reviewed on 2026-09-30; all points are resolved or decided. The smoke test of the same day (Task 8) confirmed the assumptions
+behind points 1 to 6.
 
 1. **Resolved:** Which scope does the employments endpoint need?
    Most likely `personio:persons:read`, like the persons endpoints (see [Authentication](#authentication));
    the client requests no specific scope anyway (decision 16).
-   The smoke test confirms it with credentials that only have `personio:persons:read`.
+   Smoke test: confirmed; a token that has only the scope `personio:persons:read` can read the employments.
 2. **Decided:** Does the API accept the filters together with a cursor, and does the cursor keep them?
    Not documented for persons and employments, and other v2 APIs differ (see [Resource Endpoints](#resource-endpoints)).
-   The iterators resend the filters (decision 9). The smoke test checks that filtered pages keep the filter and that the cursor advances;
-   if the API answers a filter next to a cursor with a 400, the iterators switch to taking the query of the `next` link.
+   The iterators resend the filters (decision 9).
+   Smoke test: resending the filters works, and the cursor carries them anyway, so decision 9 stays.
 3. **Decided:** Custom attributes: is `type` sent in upper or lower case, and which JSON types does `value` have for `INT`, `DOUBLE`, `BOOLEAN` and `DATE`?
    Neither breaks the parsing anymore: `type` is a plain `str`, and `value` accepts any JSON value (decision 5).
-   The smoke test records the actual casing and value types, so that the README can describe them.
+   Smoke test: the API sends the types in lower case (`string`, `date`) and their values as strings;
+   strict enums would have failed on every page with custom attributes.
 4. **Decided:** Is `job.id` always a UUID?
    Most likely (the Jobs API documents it as a UUID, too), but it doesn't matter anymore: the job ID is a plain `str` (decision 5).
+   Smoke test: the checked employments had no job (`null`).
 5. **Decided:** What are the rate limits of the persons and employments endpoints, and which headers come with a 429?
    They aren't documented (see [Rate Limits](#rate-limits)), so the client retries a 429 automatically (decision 17).
-   The smoke test records the rate limit headers, if there are any.
+   Smoke test: token bucket headers (burst capacity 100, replenish rate 30); no request was answered with 429.
 6. **Decided:** Are the plain-string employment dates always `YYYY-MM-DD`?
    Most likely (the write specs define them as dates, and all examples match), so they are generated as `date` (decision 5).
-   The smoke test checks that all real employments parse.
+   Smoke test: `employment_start_date` is `YYYY-MM-DD`, the other dates were `null`; all employments parsed.
 7. **Resolved:** Where does the repository live, and is `personio-client` the PyPI name?
    The repository was transferred to [Hochfrequenz/personio_client.py](https://github.com/Hochfrequenz/personio_client.py) (public) on 2026-09-29,
    and the name `personio-client` stays (decision 1; no collisions, see [Existing Python Packages](#existing-python-packages)).
 
 ## Follow-ups
 
-- Retries on server errors (502, 503, 504), and client-side throttling if the smoke test finds rate limit headers.
+- Retries on server errors (502, 503, 504).
+- Client-side throttling based on the rate limit headers the smoke test found (`x-ratelimit-remaining`, `x-ratelimit-replenish-rate`),
+  if the retries turn out not to be enough.
 - `POST /v2/auth/revoke` as `revoke_access_token()`.
 - More v2 APIs (e.g. org units, cost centers, legal entities, absences) and the write endpoints of persons and employments.
 - Activate the publishing workflow (GitHub environment `release`, PyPI trusted publisher) and release v0.1.0.
