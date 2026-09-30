@@ -69,6 +69,10 @@ ignore = [
     "PLR2004", # magic-value-comparison
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# the generated models keep the long descriptions of the OpenAPI specs
+"src/personio_client/models/_generated/*" = ["E501"]
+
 [tool.mypy]
 disable_error_code = []
 plugins = ["pydantic.mypy"]

@@ -524,8 +524,11 @@ Commits in order, each green on its own (tests, ruff, mypy, codespell, coverage 
           link = self.meta.links.get("next")
           if link is None or link.href is None:
               return None
-          cursors = parse_qs(urlsplit(link.href).query).get("cursor")
-          return cursors[0] if cursors else None
+          for parameter in urlsplit(link.href).query.split("&"):
+              key, _, value = parameter.partition("=")
+              if unquote(key) == "cursor":
+                  return unquote(value)  # unlike parse_qs, keeps a "+" (cursors may be base64 values)
+          return None
   ```
 
 - Create `unittests/test_models.py` (see [Tests](#tests)).

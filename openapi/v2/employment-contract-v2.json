@@ -1,0 +1,1032 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Employment",
+    "version": "2.0.0",
+    "description": "Collection of endpoints to manage employments."
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://api.personio.de"
+    }
+  ],
+  "paths": {
+    "/v2/persons/{person_id}/employments": {
+      "get": {
+        "summary": "List employments of a given Person.",
+        "description": "Returns a list of employments of a given person. The employments are returned in sorted order, with the most recent employments appearing first.",
+        "tags": [
+          "Employments"
+        ],
+        "x-path-examples": {
+          "List all employments in single page": {
+            "value": "/v2/persons/5005/employments"
+          },
+          "List all employments in multiple pages": {
+            "value": "/v2/persons/5005/employments"
+          },
+          "List employments using a filter": {
+            "value": "/v2/persons/5005/employments",
+            "query": "id=2306b77a-35fb-4b1d-8044-3b14f7f2ca65"
+          },
+          "List employments using pagination": {
+            "value": "/v2/persons/5005/employments",
+            "query": "limit=1"
+          },
+          "List employments using filter and pagination": {
+            "value": "/v2/persons/5005/employments",
+            "query": "limit=1&updated_at.gt=2023-06-17T14:07:17Z&updated_at.lt=2024-06-17T14:07:17Z"
+          },
+          "List employments by exact updated_at": {
+            "value": "/v2/persons/5005/employments",
+            "query": "updated_at=2023-06-17T14:07:17Z"
+          },
+          "List employments using wrong filter value": {
+            "value": "/v2/persons/5005/employments",
+            "query": "created_at.lt=wrong-date-format"
+          },
+          "List employments using wrong filter format": {
+            "value": "/v2/persons/5005/employments",
+            "query": "id.invalid=0825e977-b879-4106-a73e-3d9aedad733d"
+          },
+          "List all employments for a non existing person": {
+            "value": "/v2/persons/404/employments"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "description": "The identifier of the person.",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10
+            },
+            "description": "The amount of resources to be returned per one request. It can range between 1 and 50, and the default is 10."
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "example": "cur_82sQwR2eZvKilo2duNh219Kw",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The pagination cursor to navigate over to the next list of resources. If you pass a specific limit to your  request, or you rely on the default value of the number of resources to be returned, then your subsequent call has to include the cursor in order to retrieve the next list of resources. If cursor is missing,  the first page is returned."
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter results matching one or more provided employment ids.\n",
+            "example": "employment-id-1,employment-id-2"
+          },
+          {
+            "name": "updated_at",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Filter employments by updated date.",
+            "example": "2023-01-01T12:00:00Z"
+          },
+          {
+            "name": "updated_at.gt",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Filter employments updated after the provided date.",
+            "example": "2023-01-01T12:00:00Z"
+          },
+          {
+            "name": "updated_at.lt",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Filter employments updated before the provided date.",
+            "example": "2023-01-01T12:00:00Z"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Employment"
+                      }
+                    },
+                    "_meta": {
+                      "description": "This object represents the metadata information for an object. It's a set of arbitrary key/value attributes such as `links`.",
+                      "type": "object",
+                      "readOnly": true,
+                      "properties": {
+                        "links": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "description": "This objects represents a hyperlink.",
+                            "type": "object",
+                            "readOnly": true,
+                            "properties": {
+                              "href": {
+                                "type": "string",
+                                "format": "uri"
+                              }
+                            },
+                            "additionalProperties": true
+                          },
+                          "example": {
+                            "links": {
+                              "self": {
+                                "href": "https://api.personio.de/v2/person?cursor=<current-cursor>"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "List all employments in single page": {
+                    "$ref": "#/components/examples/EmploymentsListInSinglePageResponse"
+                  },
+                  "List all employments in multiple pages": {
+                    "$ref": "#/components/examples/EmploymentsListInMultiplePagesResponse"
+                  },
+                  "List employments using a filter": {
+                    "$ref": "#/components/examples/EmploymentsWithParametersAndSinglePageResponse"
+                  },
+                  "List employments using pagination": {
+                    "$ref": "#/components/examples/EmploymentsWithParametersAndMultiplePagesResponse"
+                  },
+                  "List employments using filter and pagination": {
+                    "$ref": "#/components/examples/EmploymentsWithParametersAndMultiplePagesResponse"
+                  },
+                  "List employments by exact updated_at": {
+                    "$ref": "#/components/examples/EmploymentsWithParametersAndSinglePageResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "description": "This object represents an error response.",
+                  "properties": {
+                    "personio_trace_id": {
+                      "type": "string",
+                      "example": "aswo3f-a202lfso-312123sld-1230ddd",
+                      "description": "A unique ID that was created for this error."
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "example": "2021-05-28T11:17:30.000Z",
+                      "description": "The timestamp of when the error occurred."
+                    },
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string",
+                            "example": "Not found",
+                            "description": "The title of the error."
+                          },
+                          "detail": {
+                            "type": "string",
+                            "example": "The requested resource was not found.",
+                            "description": "A short description about the error."
+                          },
+                          "type": {
+                            "type": "string",
+                            "format": "uri",
+                            "example": "https://developer.personio.de/reference/errors#common.requested_resource_not_found",
+                            "description": "A link to the developer hub where more information can be found for the encountered error."
+                          },
+                          "_meta": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "List employments using wrong filter value": {
+                    "$ref": "#/components/examples/InvalidFilterValue"
+                  },
+                  "List employments using wrong filter format": {
+                    "$ref": "#/components/examples/InvalidFilterFormat"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Person not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/paths/~1v2~1persons~1{person_id}~1employments/get/responses/400/content/application~1problem+json/schema"
+                },
+                "examples": {
+                  "List all employments for a non existing person": {
+                    "$ref": "#/components/examples/ResourceNotFound"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/persons/{person_id}/employments/{id}": {
+      "get": {
+        "summary": "Retrieve an employment.",
+        "description": "Retrieves an employment for the provided ID.",
+        "tags": [
+          "Employments"
+        ],
+        "x-path-examples": {
+          "Employment response": {
+            "value": "/v2/persons/5005/employments/some-normal-id"
+          },
+          "Employment not found": {
+            "value": "/v2/persons/5005/employments/id-that-does-not-exist"
+          },
+          "List an employment for a non existing person": {
+            "value": "/v2/persons/404/employments/some-normal-id"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "description": "The identifier of the person.",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "description": "The identifier of the employment.",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Employment"
+                },
+                "examples": {
+                  "Employment response": {
+                    "$ref": "#/components/examples/EmploymentResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/paths/~1v2~1persons~1{person_id}~1employments/get/responses/400/content/application~1problem+json/schema"
+                },
+                "examples": {
+                  "Employment not found": {
+                    "$ref": "#/components/examples/ResourceNotFound"
+                  },
+                  "List an employment for a non existing person": {
+                    "$ref": "#/components/examples/ResourceNotFound"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "OrgUnit": {
+        "description": "The Org Unit schema",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "The type of the Org Unit, e.g. team or department."
+          },
+          "id": {
+            "type": "string",
+            "description": "The Internal ID of the Org Unit."
+          }
+        }
+      },
+      "CostCenter": {
+        "description": "Cost center schema",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The unique identifier for the `cost_center`.",
+            "readOnly": true
+          },
+          "weight": {
+            "type": "number",
+            "description": "The weight of the `cost_center`."
+          }
+        }
+      },
+      "Employment": {
+        "description": "Employment schema",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The unique identifier for the `employment`.",
+            "readOnly": true
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "The title of the `position`."
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "description": "The status of the employment. Only listed values are valid.",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE",
+              "ONBOARDING",
+              "LEAVE",
+              "UNSPECIFIED"
+            ]
+          },
+          "weekly_working_hours": {
+            "type": "number",
+            "description": "The total amount of weekly working hours."
+          },
+          "full_time_weekly_working_hours": {
+            "type": "number",
+            "description": "The number of hours per week that is considered full time for the employment."
+          },
+          "probation_end_date": {
+            "type": "string",
+            "example": "2024-01-17",
+            "description": "The date that marks the end of the probation period."
+          },
+          "employment_start_date": {
+            "type": "string",
+            "example": "2024-01-17",
+            "description": "The date that marks the start of the employment."
+          },
+          "employment_end_date": {
+            "type": "string",
+            "example": "2024-01-17",
+            "description": "The date that marks the end of the employment."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "INTERNAL",
+              "EXTERNAL"
+            ],
+            "description": "The employment type. Only listed values are valid."
+          },
+          "contract_end_date": {
+            "type": "string",
+            "example": "2024-01-17",
+            "description": "The date the contract ends for this employment."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The date and time this employment was created in Personio.",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The date and time this employment was last updated in Personio.",
+            "readOnly": true
+          },
+          "supervisor": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The unique identifier for the supervisor."
+              }
+            }
+          },
+          "office": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The unique identifier for the `office`."
+              }
+            }
+          },
+          "org_units": {
+            "description": "All Org Units, i.e. department and team, directly associated with the employment.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrgUnit"
+            }
+          },
+          "person": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The unique identifier for the `person`."
+              }
+            },
+            "readOnly": true
+          },
+          "termination": {
+            "$ref": "#/components/schemas/Termination"
+          },
+          "cost_centers": {
+            "description": "The list of cost centers this employment is attached to.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CostCenter"
+            }
+          },
+          "legal_entity": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The unique identifier for the employment legal entity."
+              }
+            }
+          },
+          "job": {
+            "type": "object",
+            "description": "The `job` associated with the employment.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "The unique identifier for the `job`."
+              }
+            }
+          },
+          "sub_company": {
+            "type": "object",
+            "deprecated": true,
+            "description": "This field is deprecated, use instead the legal entity.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The unique identifier for the employment sub-company."
+              }
+            }
+          },
+          "_meta": {
+            "$ref": "#/paths/~1v2~1persons~1{person_id}~1employments/get/responses/200/content/application~1json/schema/properties/_meta"
+          }
+        }
+      },
+      "Termination": {
+        "description": "Termination schema",
+        "properties": {
+          "termination_date": {
+            "type": "string",
+            "format": "date",
+            "description": "The termination date."
+          },
+          "last_working_day": {
+            "type": "string",
+            "format": "date",
+            "description": "The last working day date."
+          },
+          "terminated_at": {
+            "type": "string",
+            "format": "date",
+            "description": "The date on which an employee submits their resignation or the employer issues a termination notice."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "EMPLOYEE",
+              "FIRED",
+              "DEATH",
+              "CONTRACT_EXPIRED",
+              "AGREEMENT",
+              "SUB_COMPANY_SWITCH",
+              "IRREVOCABLE_SUSPENSION",
+              "CANCELLATION",
+              "COLLECTIVE_AGREEMENT",
+              "SETTLEMENT_AGREEMENT",
+              "RETIREMENT",
+              "COURT_SETTLEMENT",
+              "QUIT"
+            ],
+            "description": "The type of termination. Only listed values are valid."
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason of the termination."
+          }
+        }
+      }
+    },
+    "examples": {
+      "EmploymentResponse": {
+        "value": {
+          "id": "2306b77a-35fb-4b1d-8044-3b14f7f2ca65",
+          "status": "ACTIVE",
+          "weekly_working_hours": 40,
+          "probation_end_date": "2023-07-01",
+          "employment_start_date": "2023-01-01",
+          "full_time_weekly_working_hours": 40,
+          "employment_end_date": null,
+          "type": "INTERNAL",
+          "contract_end_date": "2024-01-01",
+          "created_at": "2023-01-01T14:07:17Z",
+          "updated_at": "2023-06-17T14:07:17Z",
+          "position": {
+            "title": "Software Engineer"
+          },
+          "supervisor": {
+            "id": "3003"
+          },
+          "office": {
+            "id": "60302"
+          },
+          "legal_entity": {
+            "id": "170"
+          },
+          "job": {
+            "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          },
+          "sub_company": {
+            "id": "47"
+          },
+          "org_units": [
+            {
+              "type": "team",
+              "id": "4502"
+            },
+            {
+              "type": "department",
+              "id": "401"
+            }
+          ],
+          "cost_centers": [
+            {
+              "id": "1000",
+              "weight": 100
+            }
+          ],
+          "person": {
+            "id": "5005"
+          },
+          "termination": {
+            "termination_date": "2022-12-12",
+            "last_working_date": "2023-01-07",
+            "terminated_at": "2022-11-01",
+            "type": "QUIT",
+            "reason": "Moving to a different position"
+          },
+          "_meta": {
+            "links": {
+              "person": {
+                "href": "https://api.personio.de/v2/persons/5005"
+              },
+              "supervisor": {
+                "href": "https://api.personio.de/v2/persons/3003"
+              }
+            }
+          }
+        }
+      },
+      "EmploymentsListInSinglePageResponse": {
+        "value": {
+          "_data": [
+            {
+              "id": "2306b77a-35fb-4b1d-8044-3b14f7f2ca65",
+              "status": "ACTIVE",
+              "weekly_working_hours": 40,
+              "full_time_weekly_working_hours": 40,
+              "probation_end_date": "2023-07-01",
+              "employment_start_date": "2023-01-01",
+              "employment_end_date": null,
+              "type": "INTERNAL",
+              "contract_end_date": "2024-01-01",
+              "created_at": "2023-01-01T14:07:17Z",
+              "updated_at": "2023-06-17T14:07:17Z",
+              "position": {
+                "title": "Software Engineer"
+              },
+              "supervisor": {
+                "id": "3003"
+              },
+              "office": {
+                "id": "60302"
+              },
+              "legal_entity": {
+                "id": "170"
+              },
+              "job": {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              },
+              "sub_company": {
+                "id": "47"
+              },
+              "org_units": [
+                {
+                  "type": "team",
+                  "id": "4502"
+                },
+                {
+                  "type": "department",
+                  "id": "401"
+                }
+              ],
+              "cost_centers": [
+                {
+                  "id": "1f33aa20-287f-4dda-a517-eba2a316f755",
+                  "weight": 100
+                }
+              ],
+              "person": {
+                "id": "5005"
+              },
+              "termination": {
+                "termination_date": "2022-12-12",
+                "last_working_date": "2023-01-07",
+                "terminated_at": "2022-11-01",
+                "type": "QUIT",
+                "reason": "Moving to a different position"
+              },
+              "_meta": {
+                "links": {
+                  "person": {
+                    "href": "https://api.personio.de/v2/persons/5005"
+                  },
+                  "supervisor": {
+                    "href": "https://api.personio.de/v2/persons/3003"
+                  }
+                }
+              }
+            }
+          ],
+          "_meta": {
+            "links": {
+              "self": {
+                "href": "https://api.personio.de/v2/employments"
+              }
+            }
+          }
+        }
+      },
+      "EmploymentsListInMultiplePagesResponse": {
+        "value": {
+          "_data": [
+            {
+              "id": "2306b77a-35fb-4b1d-8044-3b14f7f2ca65",
+              "status": "ACTIVE",
+              "weekly_working_hours": 40,
+              "full_time_weekly_working_hours": 40,
+              "probation_end_date": "2023-07-01",
+              "employment_start_date": "2023-01-01",
+              "employment_end_date": null,
+              "type": "INTERNAL",
+              "contract_end_date": "2024-01-01",
+              "created_at": "2023-01-01T14:07:17Z",
+              "updated_at": "2023-06-17T14:07:17Z",
+              "position": {
+                "title": "Software Engineer"
+              },
+              "supervisor": {
+                "id": "3003"
+              },
+              "office": {
+                "id": "60302"
+              },
+              "legal_entity": {
+                "id": "170"
+              },
+              "job": {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              },
+              "sub_company": {
+                "id": "47"
+              },
+              "org_units": [
+                {
+                  "type": "team",
+                  "id": "4502"
+                },
+                {
+                  "type": "department",
+                  "id": "401"
+                }
+              ],
+              "cost_centers": [
+                {
+                  "id": "1f33aa20-287f-4dda-a517-eba2a316f755",
+                  "weight": 100
+                }
+              ],
+              "person": {
+                "id": "5005"
+              },
+              "termination": {
+                "termination_date": "2022-12-12",
+                "last_working_date": "2023-01-07",
+                "terminated_at": "2022-11-01",
+                "type": "QUIT",
+                "reason": "Moving to a different position"
+              },
+              "_meta": {
+                "links": {
+                  "person": {
+                    "href": "https://api.personio.de/v2/persons/5005"
+                  },
+                  "supervisor": {
+                    "href": "https://api.personio.de/v2/persons/3003"
+                  }
+                }
+              }
+            }
+          ],
+          "_meta": {
+            "links": {
+              "self": {
+                "href": "https://api.personio.de/v2/employments"
+              },
+              "next": {
+                "href": "https://api.personio.de/v2/employments?cursor=cur_42sQwR2eZvKilo2"
+              }
+            }
+          }
+        }
+      },
+      "EmploymentsWithParametersAndSinglePageResponse": {
+        "value": {
+          "_data": [
+            {
+              "id": "2306b77a-35fb-4b1d-8044-3b14f7f2ca65",
+              "status": "ACTIVE",
+              "weekly_working_hours": 40,
+              "full_time_weekly_working_hours": 40,
+              "probation_end_date": "2023-07-01",
+              "employment_start_date": "2023-01-01",
+              "employment_end_date": null,
+              "type": "INTERNAL",
+              "contract_end_date": "2024-01-01",
+              "created_at": "2023-01-01T14:07:17Z",
+              "updated_at": "2023-06-17T14:07:17Z",
+              "position": {
+                "title": "Software Engineer"
+              },
+              "supervisor": {
+                "id": "3003"
+              },
+              "office": {
+                "id": "60302"
+              },
+              "legal_entity": {
+                "id": "170"
+              },
+              "job": {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              },
+              "sub_company": {
+                "id": "47"
+              },
+              "org_units": [
+                {
+                  "type": "team",
+                  "id": "4502"
+                },
+                {
+                  "type": "department",
+                  "id": "401"
+                }
+              ],
+              "cost_centers": [
+                {
+                  "id": "1f33aa20-287f-4dda-a517-eba2a316f755",
+                  "weight": 100
+                }
+              ],
+              "person": {
+                "id": "5005"
+              },
+              "termination": {
+                "termination_date": "2022-12-12",
+                "last_working_date": "2023-01-07",
+                "terminated_at": "2022-11-01",
+                "type": "QUIT",
+                "reason": "Moving to a different position"
+              },
+              "_meta": {
+                "links": {
+                  "person": {
+                    "href": "https://api.personio.de/v2/persons/5005"
+                  },
+                  "supervisor": {
+                    "href": "https://api.personio.de/v2/persons/3003"
+                  }
+                }
+              }
+            }
+          ],
+          "_meta": {
+            "links": {
+              "self": {
+                "href": "https://api.personio.de/v2/employments?cursor=cur_42sQwR2eZvKilo2"
+              }
+            }
+          }
+        }
+      },
+      "EmploymentsWithParametersAndMultiplePagesResponse": {
+        "value": {
+          "_data": [
+            {
+              "id": "2306b77a-35fb-4b1d-8044-3b14f7f2ca65",
+              "status": "ACTIVE",
+              "weekly_working_hours": 40,
+              "full_time_weekly_working_hours": 40,
+              "probation_end_date": "2023-07-01",
+              "employment_start_date": "2023-01-01",
+              "employment_end_date": null,
+              "type": "INTERNAL",
+              "contract_end_date": "2024-01-01",
+              "created_at": "2023-01-01T14:07:17Z",
+              "updated_at": "2023-06-17T14:07:17Z",
+              "position": {
+                "title": "Software Engineer"
+              },
+              "supervisor": {
+                "id": "3003"
+              },
+              "office": {
+                "id": "60302"
+              },
+              "legal_entity": {
+                "id": "170"
+              },
+              "job": {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              },
+              "sub_company": {
+                "id": "47"
+              },
+              "org_units": [
+                {
+                  "type": "team",
+                  "id": "4502"
+                },
+                {
+                  "type": "department",
+                  "id": "401"
+                }
+              ],
+              "cost_centers": [
+                {
+                  "id": "1f33aa20-287f-4dda-a517-eba2a316f755",
+                  "weight": 100
+                }
+              ],
+              "person": {
+                "id": "5005"
+              },
+              "termination": {
+                "termination_date": "2022-12-12",
+                "last_working_date": "2023-01-07",
+                "terminated_at": "2022-11-01",
+                "type": "QUIT",
+                "reason": "Moving to a different position"
+              },
+              "_meta": {
+                "links": {
+                  "person": {
+                    "href": "https://api.personio.de/v2/persons/5005"
+                  },
+                  "supervisor": {
+                    "href": "https://api.personio.de/v2/persons/3003"
+                  }
+                }
+              }
+            }
+          ],
+          "_meta": {
+            "links": {
+              "self": {
+                "href": "https://api.personio.de/v2/employments?cursor=cur_42sQwR2eZvKilo2"
+              },
+              "next": {
+                "href": "https://api.personio.de/v2/employments?cursor=cur_234ls0f02lalfdd"
+              }
+            }
+          }
+        }
+      },
+      "InvalidFilterValue": {
+        "value": {
+          "personio_trace_id": "aswo3f-a202lfso-312123sld-1230ddd",
+          "timestamp": "2021-05-28T11:17:30+00:00",
+          "errors": [
+            {
+              "title": "Bad request",
+              "detail": "Provided request parameters are invalid.",
+              "type": "https://developer.personio.de/reference/errors#common.bad_request"
+            }
+          ]
+        }
+      },
+      "InvalidFilterFormat": {
+        "value": {
+          "personio_trace_id": "aswo3f-a202lfso-312123sld-1230ddd",
+          "timestamp": "2021-05-28T11:17:30+00:00",
+          "errors": [
+            {
+              "title": "Bad request",
+              "detail": "Provided filter encoding is invalid.",
+              "type": "https://developer.personio.de/reference/errors#common.bad_request"
+            }
+          ]
+        }
+      },
+      "ResourceNotFound": {
+        "value": {
+          "personio_trace_id": "aswo3f-a202lfso-312123sld-1230ddd",
+          "timestamp": "2021-05-28T11:17:30+00:00",
+          "errors": [
+            {
+              "title": "Resource not found",
+              "detail": "There is no resource for the specified id.",
+              "type": "https://developer.personio.de/reference/errors#common.resource_not_found"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -17,11 +17,12 @@ jobs:
         include:
           - linter-env: linting
             commands: |
-              uv run ruff check src/personio_client unittests
+              uv run ruff check src/personio_client unittests scripts
           - linter-env: type_check
             commands: |
               uv run mypy --show-error-codes src/personio_client --strict
               uv run mypy --show-error-codes unittests --strict
+              uv run mypy --show-error-codes scripts --strict
           - linter-env: spell_check
             commands: |
               uv run codespell --ignore-words=domain-specific-terms.txt src
