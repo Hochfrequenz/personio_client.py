@@ -19,7 +19,7 @@ from personio_client.exceptions import (
     PersonioClientError,
     PersonioRateLimitError,
 )
-from personio_client.models import CursorPage, OAuth2Token, OAuth2TokenRequest, Person
+from personio_client.models import CursorPage, Employment, OAuth2Token, OAuth2TokenRequest, Person
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -592,3 +592,119 @@ class PersonioClient:
 
         async for person in _iterate_pages(fetch_page):
             yield person
+
+    # =========================================================================
+    # Employments
+    # =========================================================================
+
+    async def get_employments(
+        self,
+        person_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        id: list[str] | None = None,
+        updated_at: AwareDatetime | None = None,
+        updated_at_gt: AwareDatetime | None = None,
+        updated_at_lt: AwareDatetime | None = None,
+    ) -> CursorPage[Employment]:
+        """Get one page of the employments of a person, the most recent employments first.
+
+        Use iter_employments() to get the employments of all pages.
+        The spec names no scope for the employment endpoints; most likely they need personio:persons:read.
+
+        Args:
+            person_id: The ID of the person.
+            limit: The number of employments per page, from 1 to 50. Defaults to 10.
+            cursor: The cursor of the page to return (`next_cursor` of the previous page). Defaults to the first page.
+            id: Filter by the IDs of the employments.
+            updated_at: Filter by the time of the last update.
+            updated_at_gt: Return only employments updated after this time (query parameter `updated_at.gt`).
+            updated_at_lt: Return only employments updated before this time (query parameter `updated_at.lt`).
+
+        Returns:
+            A page of employments with the cursor of the next page.
+
+        Raises:
+            ValueError: If a date-time filter is a naive datetime.
+            PersonioAPIError: With the status code 404 if there is no person with this ID.
+        """
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        if id is not None:
+            params["id"] = ",".join(id)
+        if updated_at is not None:
+            params["updated_at"] = _format_datetime(updated_at)
+        if updated_at_gt is not None:
+            params["updated_at.gt"] = _format_datetime(updated_at_gt)
+        if updated_at_lt is not None:
+            params["updated_at.lt"] = _format_datetime(updated_at_lt)
+
+        response_text = await self._get(f"/v2/persons/{_path_parameter(person_id)}/employments", params)
+        return CursorPage[Employment].model_validate_json(response_text)
+
+    async def get_employment(self, person_id: str, employment_id: str) -> Employment:
+        """Get an employment of a person.
+
+        The spec names no scope for the employment endpoints; most likely they need personio:persons:read.
+
+        Args:
+            person_id: The ID of the person.
+            employment_id: The ID of the employment.
+
+        Returns:
+            The employment.
+
+        Raises:
+            PersonioAPIError: With the status code 404 if there is no such person or employment.
+        """
+        response_text = await self._get(
+            f"/v2/persons/{_path_parameter(person_id)}/employments/{_path_parameter(employment_id)}"
+        )
+        return Employment.model_validate_json(response_text)
+
+    async def iter_employments(
+        self,
+        person_id: str,
+        *,
+        limit: int = MAX_PAGE_SIZE,
+        id: list[str] | None = None,
+        updated_at: AwareDatetime | None = None,
+        updated_at_gt: AwareDatetime | None = None,
+        updated_at_lt: AwareDatetime | None = None,
+    ) -> AsyncIterator[Employment]:
+        """Iterate over the employments of a person on all pages, the most recent employments first.
+
+        Calls get_employments() page by page with the same filters until there is no next page.
+
+        Args:
+            person_id: The ID of the person.
+            limit: The number of employments per page, from 1 to 50. Defaults to 50, which saves requests.
+            id: Filter by the IDs of the employments.
+            updated_at: Filter by the time of the last update.
+            updated_at_gt: Return only employments updated after this time.
+            updated_at_lt: Return only employments updated before this time.
+
+        Yields:
+            The employments.
+
+        Raises:
+            PersonioClientError: If the API returns a cursor twice, i.e. the pagination doesn't advance.
+        """
+
+        async def fetch_page(cursor: str | None) -> CursorPage[Employment]:
+            return await self.get_employments(
+                person_id,
+                limit=limit,
+                cursor=cursor,
+                id=id,
+                updated_at=updated_at,
+                updated_at_gt=updated_at_gt,
+                updated_at_lt=updated_at_lt,
+            )
+
+        async for employment in _iterate_pages(fetch_page):
+            yield employment
