@@ -1,152 +1,217 @@
-# Python Template Repository including `uv` tooling, Unittests&Coverage, Ruff & MyPy Linting Actions and a PyPI Publishing Workflow
+# personio_client.py
 
-<!--- you need to replace the `organization/repo_name` in the status badge URLs --->
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Unittests status badge](https://github.com/Hochfrequenz/personio_client.py/workflows/Unittests/badge.svg)
+![Coverage status badge](https://github.com/Hochfrequenz/personio_client.py/workflows/Coverage/badge.svg)
+![Linting status badge](https://github.com/Hochfrequenz/personio_client.py/workflows/Linting/badge.svg)
+![Formatting status badge](https://github.com/Hochfrequenz/personio_client.py/workflows/Formatting/badge.svg)
 
-![Unittests status badge](https://github.com/Hochfrequenz/python_template_repository/workflows/Unittests/badge.svg)
-![Coverage status badge](https://github.com/Hochfrequenz/python_template_repository/workflows/Coverage/badge.svg)
-![Linting status badge](https://github.com/Hochfrequenz/python_template_repository/workflows/Linting/badge.svg)
-![Ruff status badge](https://github.com/Hochfrequenz/python_template_repository/workflows/Formatting/badge.svg)
+An async Python client for the [Personio API v2](https://developer.personio.de/reference/introduction).
+It obtains access tokens and reads persons and employments.
 
-This is a template repository.
-It doesn't contain any useful code but only a minimal working setup for a Python project including:
+> [!IMPORTANT]
+> This is a community project and is NOT an official Personio client.
+> It is not affiliated with or endorsed by Personio SE & Co. KG.
 
-- a basic **project structure** with
-  - `pyproject.toml` where the project metadata, dependencies and [dependency-groups](https://peps.python.org/pep-0735/) are defined
-  - a `uv.lock` lockfile derived from it
-  - an example class
-  - an example unit test (using pytest)
-- ready to use **Github Actions** for
-  - [pytest](https://pytest.org)
-  - [code coverage measurement](https://coverage.readthedocs.io) (fails below 80% by default)
-  - [ruff](https://docs.astral.sh/ruff/) lint checks, code formatting and import order (replacing pylint, black and isort)
-  - [mypy](https://github.com/python/mypy) (static type checks where possible)
-  - [codespell](https://github.com/codespell-project/codespell) spell check (including an ignore list)
-  - dependency management and locking with [uv](https://docs.astral.sh/uv/)
-  - ready-to-use publishing workflow for pypi (see readme section below)
+> [!NOTE]
+> Besides the unit tests with the examples of the OpenAPI specs, the client was checked against the live API
+> with read-only credentials on 2026-09-30 (see task 8 of the [implementation plan](docs/plans/2026-09-29-personio-v2-client.md)).
 
-By default, it uses Python version 3.13.
+## Installation
 
-This repository uses a [`src`-based layout](https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/).
-This approach has many advantages and basically means for developers, that all business logic lives in the `src` directory.
-
-## How to use this Repository on Your Machine
-
-### Installing uv
-This project uses [uv](https://docs.astral.sh/uv/) to manage the Python interpreter, virtual environment and dependencies.
-If you don't have uv installed yet, follow the [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/), e.g.:
+The package isn't released on PyPI yet. Install it from GitHub:
 
 ```bash
-# macOS / Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
+pip install git+https://github.com/Hochfrequenz/personio_client.py
 ```
 
-```ps
-# Windows Powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+## Usage
+
+```python
+import asyncio
+
+from personio_client import PersonioClient
+
+
+async def main() -> None:
+    async with PersonioClient(client_id="papi-...", client_secret="papi-...", app_id="MY_APP") as client:
+        async for person in client.iter_persons(status="ACTIVE"):
+            print(person.first_name, person.last_name, person.email)
+            if person.id is not None:  # the spec declares no required fields
+                async for employment in client.iter_employments(person.id):
+                    print("  ", employment.status, employment.employment_start_date)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-### Creating the project-specific dev environment
-Once uv is installed, you're ready to start:
-   1. clone the repository you want to work in
-   2. change directory into your local clone
-   3. create the dev environment on your machine:
+### Authentication
+
+- The client authenticates with API credentials of Personio
+  (see [Generate and manage API credentials](https://support.personio.de/hc/en-us/articles/4404623630993-Generate-and-manage-API-credentials)).
+  They need the scope `personio:persons:read`, for the persons and the employment endpoints.
+  We recommend credentials that have only this scope.
+- The client obtains an access token when it sends its first request, and a new one shortly before the token expires
+  (tokens are valid for one day). By default, the token gets all scopes of the credentials; pass `scope=[...]` to restrict it.
+  `obtain_access_token()` requests a token explicitly, e.g. to check its scopes.
+- Pass `app_id` (e.g. `"MY_APP"`) and, if you are an integration partner of Personio, `partner_id`.
+  Personio strongly recommends these headers (`X-Personio-App-ID`, `X-Personio-Partner-ID`), so that it can support you with API issues.
+
+### Pagination
+
+`get_persons()` and `get_employments()` return one page, a `CursorPage` with the items in `data` and the cursor of the next page in `next_cursor`
+(`None` on the last page):
+
+```python
+page = await client.get_persons(limit=50, updated_at_gt=datetime(2026, 1, 1, tzinfo=UTC))
+while True:
+    for person in page.data:
+        ...
+    if page.next_cursor is None:
+        break
+    page = await client.get_persons(limit=50, updated_at_gt=datetime(2026, 1, 1, tzinfo=UTC), cursor=page.next_cursor)
+```
+
+`iter_persons()` and `iter_employments()` do this for you: they request 50 items per page and resend the filters with each page.
+If the API returns a cursor twice, they raise `PersonioClientError` instead of looping forever or returning a partial result.
+
+Filters are keyword arguments named after the query parameters of the spec, with dots replaced by underscores
+(e.g. `updated_at_gt` for `updated_at.gt`). Lists like `id` and `email` are sent as one comma-separated value.
+Date-time filters take a timezone-aware `datetime.datetime`; a naive datetime raises `ValueError`.
+
+### Models
+
+The models are generated from the OpenAPI specs of Personio with [pydantic](https://docs.pydantic.dev/).
+Fields the API adds are ignored. Because the spec declares no required fields, every field is optional.
+To keep an unexpected value from breaking the parsing of a whole page, the models deviate from the specs in a few places:
+
+- Enums are plain strings. Personio isn't consistent in their casing: the API sends the custom attribute types
+  in lower case (`string`, `date`), while the spec lists `STRING` and `DATE`; the statuses are upper case (`ACTIVE`).
+  Compare them case-insensitively.
+- E-mail addresses, IDs and links are plain strings.
+- The `value` of a custom attribute is any JSON value (a string, a number, a boolean, a list, ...).
+- The employment dates (`employment_start_date`, `employment_end_date`, `probation_end_date`, `contract_end_date`)
+  are `datetime.date` values, as in the write specs of Personio (the read spec types them as plain strings).
+
+### Rate Limits
+
+Personio doesn't document the rate limits of these endpoints.
+Its responses carry the headers of a token bucket (`x-ratelimit-burst-capacity`, `x-ratelimit-replenish-rate`, `x-ratelimit-remaining`);
+in our test, the bucket held 100 requests.
+The client retries a request answered with 429 Too Many Requests up to `max_retries` times (default 3),
+waiting as long as the `Retry-After` header says, otherwise 1 s, 2 s and 4 s.
+Then it raises `PersonioRateLimitError`. Pass `max_retries=0` to disable the retries.
+
+Reading the employments of all persons takes one request per person, so don't send too many requests at once,
+e.g. by limiting them with an `asyncio.Semaphore`:
+
+```python
+semaphore = asyncio.Semaphore(5)
+
+
+async def employments_of(client: PersonioClient, person_id: str) -> list[Employment]:
+    async with semaphore:
+        return [employment async for employment in client.iter_employments(person_id)]
+```
+
+### Error Handling
+
+```python
+from personio_client import PersonioAPIError, PersonioAuthenticationError, PersonioRateLimitError
+
+try:
+    person = await client.get_person("3003")
+except PersonioAuthenticationError as error:
+    print(f"Authentication failed: {error.message}")
+except PersonioRateLimitError as error:
+    print(f"Rate limit exceeded; retry after {error.retry_after} seconds")
+except PersonioAPIError as error:
+    print(f"API error {error.status_code}: {error.message} (trace ID: {error.trace_id})")
+```
+
+`PersonioAuthenticationError` and `PersonioRateLimitError` are subclasses of `PersonioAPIError`, which is a subclass of `PersonioClientError`.
+Personio support asks for the `trace_id` of a failed request.
+
+### API Coverage
+
+The client covers the Personio API v2 as described by the specs in [`openapi/v2/`](openapi/v2),
+synced from [developer.personio.de/openapi](https://developer.personio.de/openapi) on 2026-09-30.
+The tables are grouped by the tags of the specs.
+Every method wraps exactly one operation, except `iter_persons()` and `iter_employments()`, which walk through all pages.
+
+<!-- api-coverage:start -->
+**5 of 6** operations are implemented.
+
+#### Authentication
+
+| Endpoint | Method |
+| --- | --- |
+| `POST /v2/auth/revoke` | not implemented |
+| `POST /v2/auth/token` | `obtain_access_token()` |
+
+#### Employments
+
+| Endpoint | Method |
+| --- | --- |
+| `GET /v2/persons/{person_id}/employments` | `get_employments()` |
+| `GET /v2/persons/{person_id}/employments/{id}` | `get_employment()` |
+
+#### Persons
+
+| Endpoint | Method |
+| --- | --- |
+| `GET /v2/persons` | `get_persons()` |
+| `GET /v2/persons/{id}` | `get_person()` |
+<!-- api-coverage:end -->
+
+## Related Packages
+
+Other Python packages for Personio have similar names.
+To avoid confusion, this is how they differ from `personio-client` (as of September 2026):
+
+| Package (import name) | What it is |
+| --- | --- |
+| [`personio-api-client`](https://pypi.org/project/personio-api-client/) (`personio_api_client`) | A synchronous client for the Personio API v1 (employees, time-offs). Its [GitHub repository](https://github.com/dkd-dobberkau/personio-api-client) also contains a v2 client for projects and attendance periods. It has a class `PersonioClient`, too. |
+| [`personio-client-api`](https://pypi.org/project/personio-client-api/) (`personio_client_api`) | A minimal synchronous client for the Personio API v1 (employees). |
+| [`personio-py`](https://pypi.org/project/personio-py/) (`personio_py`) | A synchronous client for the Personio API v1 (employees, attendances, absences, projects). |
+| [`dlt-source-personio`](https://pypi.org/project/dlt-source-personio/) (`dlt_source_personio`) | A [dlt](https://dlthub.com) source that loads persons and employments into a data pipeline; not a client library. |
+
+`personio-client` (import name `personio_client`) is a client library for the persons and employments endpoints of the Personio API v2,
+which none of the packages above offers.
+It is async (aiohttp), and its models are generated from the official OpenAPI specs of Personio,
+like the [decidalo client](https://github.com/Hochfrequenz/decidalo_client.py) of Hochfrequenz.
+Because of these different goals, we build this client instead of contributing to `personio-api-client`, which comes closest.
+We may approach its maintainer, e.g. to link the two projects to each other.
+
+## Development
+
+Clone the repository and install the development environment:
 
 ```bash
+git clone https://github.com/Hochfrequenz/personio_client.py.git
+cd personio_client.py
 uv sync --group dev
+uv run pytest
 ```
 
-This creates a `.venv` virtual environment in the project root and installs the usual requirements as well as the testing, linting, formatting and type-checking tools (see the `[dependency-groups]` in [`pyproject.toml`](pyproject.toml)).
-uv also pins/downloads the right Python interpreter version automatically if it isn't already available on your machine.
+To sync the client with the current API, download the specs and regenerate the models from them:
 
-### How to use with PyCharm
-
-1. You have cloned the repository, you want to work in, and have created the virtual environment (`your_repo/.venv`), in which the repository should be executed. Now, to actually work inside the newly created environment, you need to tell PyCharm (your IDE) that it should use the virtual environment - to be more precise: the interpreter of this dev environment. How to do this:
-a) navigate to: File ➡ Settings (Strg + Alt + S) ➡ Project: your_project ➡ Python Interpreter ➡ Add interpreter ➡ Existing
-b) Choose as interpreter: `your_repo\.venv\Scripts\python.exe` (under windows) or `your_repo/.venv/bin/python` (under Linux/macOS)
-2. Set the default test runner of your project to pytest. How to do it:
-a) navigate to Files ➡ Settings ➡ Tools ➡ Python integrated tools ➡ Testing: Default test runner
-b) Change to "pytest"
-If this doesn't work anymore, see [the PyCharm docs](https://www.jetbrains.com/help/pycharm/choosing-your-testing-framework.html)
-3. Set the `src` directory as sources root. How to do this:
-right click on 'src' ➡ "Mark directory as…" ➡ sources root
-If this doesn't work anymore, see: [PyCharm docs](https://www.jetbrains.com/help/pycharm/content-root.html).
-Setting the `src` directory right, allows PyCharm to effectively suggest import paths.
-If you ever see something like `from src.mypackage.mymodule import ...`, then you probably forgot this step.
-5. Set the working directory of the unit tests to the project root (instead of the unittest directory). How to do this:
-a) Open any test file whose name starts with `test_` in unit tests/tests
-b) Right click inside the code ➡ More Run/Debug ➡ Modify Run Configuration ➡ expand Environment collapsible ➡ Working directory
-c) Change to `your_repo` instead of `your_repo\unittests`
-By doing so, the import and other file paths in the tests are relative to the repo root.
-If this doesn't work anymore, see: [working directory of the unit tests](https://www.jetbrains.com/help/pycharm/creating-run-debug-configuration-for-tests.html)
-
-### How to use with VS Code
-All paths mentioned in this section are relative to the repository root.
-
-1. Open the folder with VS Code.
-2. **Select the python interpreter** ([official docs](https://code.visualstudio.com/docs/python/environments#_manually-specify-an-interpreter)) which is created by uv. Open the command pallett with `CTRL + P` and type `Python: Select Interpreter`. Select the interpreter which is placed in `.venv/Scripts/python.exe` under Windows or `.venv/bin/python` under Linux and macOS.
-3. **Set up pytest**. Therefore we open the file `.vscode/settings.json` which should be automatically generated during the interpreter setup. If it doesn't exist, create it. Insert the following lines into the settings:
-
-```json
-{
-  "python.testing.unittestEnabled": false,
-  "python.testing.nosetestsEnabled": false,
-  "python.testing.pytestEnabled": true,
-  "pythonTestExplorer.testFramework": "pytest",
-  "python.testing.pytestArgs": ["unittests"]
-}
+```bash
+uv run --group codegen python scripts/generate_models.py --download
 ```
 
-4. Create a `.env` file and insert the following line
+Review the changes of the specs with `git diff openapi/`, then run the tests:
+`unittests/test_models.py` checks the models against the specs, and `unittests/test_api_coverage.py` checks the [API Coverage](#api-coverage) section of this README against the specs and the client.
+To print the expected content of that section, run:
 
-For Windows:
-
-```
-PYTHONPATH=src;${PYTHONPATH}
-```
-
-For Linux and Mac:
-
-```
-PYTHONPATH=src:${PYTHONPATH}
+```bash
+uv run python unittests/test_api_coverage.py
 ```
 
-This makes sure, that the imports are working for the unittests.
-At the moment I am not totally sure that it is the best practise, but it's getting the job done.
+The design decisions are documented in the [implementation plan](docs/plans/2026-09-29-personio-v2-client.md).
+For detailed information on the development setup (uv configuration, IDE setup, etc.), see the [Hochfrequenz Python Template Repository](https://github.com/Hochfrequenz/python_template_repository).
 
-5. Enjoy 🤗
+## License
 
-## Publishing on PyPI
-
-This repository contains all necessary CI steps to publish any project created from it on PyPI.
-It uses the trusted publishers workflow as described in the [official Python documentation](https://packaging.python.org/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/).
-It just requires some manual adjustments/settings depending on your project:
-
-1. Fill out the metadata in the [`pyproject.toml`](pyproject.toml); Namely the package name and the `dependencies` list.
-2. Uncomment the lines in [`.github/workflows/python-publish.yml`](.github/workflows/python-publish.yml)
-3. Create a [new environment in your GitHub repository](https://github.com/Hochfrequenz/python_template_repository/settings/environments) and call it `release`.
-   If you restrict that environment's deployment branches, you **must** add a rule of type *Tag* matching `v*`.
-   A release event deploys from the tag (`refs/tags/v1.2.3`), not from a branch, so an environment that only
-   allows the `main` branch rejects every publish - and the job then fails having run no steps at all, which
-   gives you nothing to debug from.
-4. Set up a new trusted publisher [in your PYPI account](https://pypi.org/manage/account/publishing/).
-   1. PyPI Project Name: The name which you defined in the `pyproject.toml` is the name of the project which you have to enter here.
-   2. Owner: The GitHub organization name or GitHub username that owns the repository
-   3. Repository name: The name of the GitHub repository that contains the publishing workflow
-   4. Workflow name: The filename of the publishing workflow. This file should exist in the .github/workflows/ directory in the repository configured above. Here in our case: `python-publish.yml`
-   5. Environment name: The name of the GitHub Actions environment that the above workflow uses for publishing. Here in our case: `release`
-5. Now create a release by clicking on "Create new release" in the right Github sidebar (or visit `github.com/your-username/your-reponame/releases/new`). This should trigger the workflow (see the "Actions" tab of your repo).
-6. Check if the action failed. If it succeeded your PyPI account should now show the new project. It might take some minutes until the package can be installed via `pip install packagename` because the index has to be updated.
-7. Now create another PyPI token with limited scope and update the Github repository secret accordingly.
-
-## Contribute
-
-You are very welcome to contribute to this template repository by opening a pull request against the main branch.
-
-### GitHub Actions
-
-- Dependabot auto-approve / -merge:
-  - If the actor is the Dependabot bot (i.e. on every commit by Dependabot)
-    the pull request is automatically approved and auto merge gets activated
-    (using squash merge).
-    Note that if you haven't enabled "auto merge" for your repository, the auto merge activation will fail.
-    If you want to use a merge type other than "squash merge" you have to edit the workflow.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

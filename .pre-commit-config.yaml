@@ -11,5 +11,5 @@ repos:
     hooks:
       - id: ruff-check
         args: [--fix]
-        files: ^(src/mypackage|unittests)/
+        files: ^(src/personio_client|unittests|scripts)/
       - id: ruff-format
