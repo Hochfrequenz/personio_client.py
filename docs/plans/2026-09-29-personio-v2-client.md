@@ -753,7 +753,8 @@ behind points 1 to 6.
   if the retries turn out not to be enough.
 - `POST /v2/auth/revoke` as `revoke_access_token()`.
 - More v2 APIs (e.g. org units, cost centers, legal entities, absences) and the write endpoints of persons and employments.
-- Activate the publishing workflow (GitHub environment `release`, PyPI trusted publisher) and release v0.1.0.
+- Release v0.1.0: the publishing workflow is active since #3; the GitHub environment `release`
+  and the trusted publisher on PyPI still have to be set up.
 - Dependabot ecosystem `uv` instead of `pip`, as in the model.
 - A scheduled workflow that downloads the specs and reports changes.
 - Possibly approach the maintainer of `personio-api-client` (decision 18), e.g. to link the READMEs to each other

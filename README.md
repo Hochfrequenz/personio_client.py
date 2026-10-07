@@ -1,6 +1,9 @@
 # personio_client.py
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python Versions (officially) supported](https://img.shields.io/pypi/pyversions/personio-client.svg)
+![Pypi status badge](https://img.shields.io/pypi/v/personio-client)
+
 ![Unittests status badge](https://github.com/Hochfrequenz/personio_client.py/workflows/Unittests/badge.svg)
 ![Coverage status badge](https://github.com/Hochfrequenz/personio_client.py/workflows/Coverage/badge.svg)
 ![Linting status badge](https://github.com/Hochfrequenz/personio_client.py/workflows/Linting/badge.svg)
@@ -19,10 +22,8 @@ It obtains access tokens and reads persons and employments.
 
 ## Installation
 
-The package isn't released on PyPI yet. Install it from GitHub:
-
 ```bash
-pip install git+https://github.com/Hochfrequenz/personio_client.py
+pip install personio-client
 ```
 
 ## Usage
