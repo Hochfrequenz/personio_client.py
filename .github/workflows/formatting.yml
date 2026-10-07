@@ -14,9 +14,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - tool: black
+          - tool: code
             command: ruff format --check .
-          - tool: isort
+          - tool: imports
             command: ruff check --select I .
     steps:
       - uses: actions/checkout@v7
