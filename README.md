@@ -81,6 +81,31 @@ Filters are keyword arguments named after the query parameters of the spec, with
 (e.g. `updated_at_gt` for `updated_at.gt`). Lists like `id` and `email` are sent as one comma-separated value.
 Date-time filters take a timezone-aware `datetime.datetime`; a naive datetime raises `ValueError`.
 
+### Finding New Persons
+
+To find persons that exist in Personio but are not yet known to a target system, compare their Personio IDs with the IDs already stored in the target system:
+
+```python
+async def find_new_persons(
+    client: PersonioClient,
+    known_ids: set[str],
+) -> list[Person]:
+    """Persons in Personio that the target system doesn't know yet."""
+    return [
+        person
+        async for person in client.iter_persons()
+        if person.id and person.id not in known_ids
+    ]
+```
+
+Use the Personio ID as the key in the target system, not the e-mail address, because e-mail addresses can change.
+
+When using `status="ACTIVE"`, note that persons in onboarding are included even if their start date has not yet been reached. If only persons who have already started should be synchronized, check `employment_start_date` via `iter_employments()`.
+
+A rehire is a new employment, not a new person. Therefore, identify new persons by their Personio ID and read their employments only after identifying the new persons.
+
+Reading employments requires one request per person, so limit concurrent requests, for example with an `asyncio.Semaphore` as shown in the [Rate Limits](#rate-limits) section.
+
 ### Models
 
 The models are generated from the OpenAPI specs of Personio with [pydantic](https://docs.pydantic.dev/).
