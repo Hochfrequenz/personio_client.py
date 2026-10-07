@@ -31,7 +31,7 @@ Homepage = "https://github.com/Hochfrequenz/personio_client.py"
 [dependency-groups]
 tests = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "aioresponses==0.7.9"]
 linting = [{ include-group = "tests" }, "ruff==0.16.9"]
-type_check = [{ include-group = "tests" }, "mypy==2.3.1"]
+type_check = [{ include-group = "tests" }, "mypy==2.4.0"]
 spell_check = ["codespell==2.4.3"]
 coverage = [{ include-group = "tests" }, "coverage==7.16.1"]
 # datamodel-code-generator regenerates the models from the OpenAPI specs of Personio
