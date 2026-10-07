@@ -386,7 +386,8 @@ asyncio.run(main())
     Dependency groups as in the template, plus `pytest-asyncio` and `aioresponses` in `tests`
     and a `codegen` group with `datamodel-code-generator==0.71.0` (the version of the trial generation) and the linting group.
 15. **Template:** pre-commit and the workflows of the template stay; only the package paths change.
-    Job names stay unchanged because they are required status checks.
+    This plan doesn't rename any job, because the job names are required status checks;
+    the formatting checks were renamed to `format (code)` and `format (imports)` on `main` separately (#4).
 16. **No specific scope by default** (agreed in the review of the open questions):
     the client requests no scope (`scope=None`), so the token gets all scopes of the credentials.
     This keeps working if Personio renames or adds scopes. Least privilege belongs to the credentials:
